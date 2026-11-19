@@ -63,9 +63,21 @@
         <div class="composer-wrap">
           <form class="composer" id="chatForm">
             <label class="sr-only" for="messageInput">Ketik pesan</label>
-            <textarea id="messageInput" rows="1" placeholder="Kirim pesan..." maxlength="20000" required></textarea>
+            <div class="attachment-list" id="attachmentList" hidden></div>
+            <textarea id="messageInput" rows="1" placeholder="Kirim pesan..." maxlength="20000"></textarea>
             <div class="composer-bottom">
-              <span class="composer-hint">Enter untuk mengirim · Shift + Enter untuk baris baru</span>
+              <div class="composer-tools">
+                <button class="attach-button" id="attachButton" type="button" aria-label="Lampirkan file">＋</button>
+                <input id="fileInput" type="file" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.yaml,.yml,.toml,.ini,.log,.html,.htm,.css,.js,.mjs,.cjs,.ts,.jsx,.tsx,.vue,.svelte,.py,.ipynb,.java,.kt,.kts,.cs,.c,.h,.hpp,.cpp,.go,.rs,.rb,.php,.swift,.sh,.bash,.ps1,.sql,.tf,.properties,.gradle,.r,.lua,.pl,.dockerfile,.env,.pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx,.pptx">
+                <label class="sr-only" for="aiLevel">Tingkat AI</label>
+                <select class="level-select" id="aiLevel" aria-label="Pilih tingkat AI">
+                  <option value="auto">Auto</option>
+                  <option value="fast">Cepat</option>
+                  <option value="balanced">Seimbang</option>
+                  <option value="deep">Mendalam</option>
+                </select>
+                <span class="composer-hint">Enter kirim · Shift+Enter baris baru</span>
+              </div>
               <button class="send-button" id="sendButton" type="submit" aria-label="Kirim pesan">
                 <span aria-hidden="true">↑</span>
               </button>
@@ -85,32 +97,25 @@
           </div>
           <button class="icon-button" id="closeSettings" type="button" aria-label="Tutup pengaturan">×</button>
         </div>
-        <p class="settings-intro">Hubungkan client ke relay Cloudflare Worker milikmu, lalu uji koneksi provider sebelum menyimpan pengaturan.</p>
+        <p class="settings-intro">Tambahkan koneksi provider dan model. Worker milikmu meneruskan request; uji setiap koneksi sebelum menyimpan.</p>
         <label for="proxyUrl">URL Cloudflare Worker</label>
         <input id="proxyUrl" name="proxyUrl" type="url" inputmode="url" placeholder="https://nama-worker.username.workers.dev" autocomplete="url" required>
-        <p class="field-help">Worker meneruskan request ke provider dan menangani CORS. Jangan gunakan URL Worker milik orang lain.</p>
-        <label for="apiBase">Base URL API</label>
-        <input id="apiBase" name="apiBase" type="url" inputmode="url" placeholder="https://kunciai.id/v1" autocomplete="url" required>
-        <label for="modelAlias">Model ID atau alias otomatis</label>
-        <input id="modelAlias" name="modelAlias" type="text" placeholder="Contoh: kunciai/deepseek-v4.1-flash" autocomplete="off" required>
-        <p class="field-help">Gunakan ID yang tampil pada daftar model provider atau alias auto yang memang didukung endpoint tersebut.</p>
-        <label for="apiKey">API key</label>
-        <input id="apiKey" name="apiKey" type="password" placeholder="Tempel API key untuk endpoint ini" autocomplete="off" required>
-        <p class="field-help warning">Key disimpan lokal tanpa enkripsi. Key dan prompt diteruskan melalui Cloudflare Worker milikmu ke provider; Worker tidak menyimpannya.</p>
+        <p class="field-help">Jangan gunakan URL Worker milik orang lain. Base URL provider harus HTTPS dan host-nya harus masuk allowlist Worker.</p>
+        <div class="provider-list" id="providerList"></div>
+        <button class="text-button add-provider-button" id="addProvider" type="button">＋ Tambah koneksi provider</button>
+        <p class="field-help">Model per baris: <code>ID model | fast,balanced,deep,default</code>. Level Auto memilih level lokal tanpa panggilan router tambahan.</p>
+        <p class="field-help warning">API key disimpan lokal tanpa enkripsi. Key, prompt, dan gambar yang dikirim melewati Cloudflare Worker milikmu lalu ke provider. Worker tidak menyimpannya.</p>
         <div class="settings-error" id="settingsError" role="alert"></div>
-        <div class="connection-controls">
-          <button class="text-button" id="testConnection" type="button">Test koneksi</button>
-          <span id="connectionStatus" role="status" aria-live="polite">Tes koneksi sebelum menyimpan.</span>
-        </div>
+        <p id="connectionStatus" class="connection-status" role="status" aria-live="polite">Test setiap provider sebelum menyimpan.</p>
         <div class="dialog-actions">
           <button class="text-button" id="cancelSettings" type="button">Batal</button>
           <button class="primary-button" id="saveSettings" type="submit" disabled>Simpan &amp; hubungkan</button>
         </div>
-        <p class="provider-note">Tes mengirim satu request chat pendek dan dapat memakai sedikit token. Endpoint harus kompatibel dengan OpenAI Chat Completions. Provider tetap menentukan model tujuan, biaya, ketersediaan, dan batasan konten.</p>
+        <p class="provider-note">Test setiap koneksi mengirim satu request chat pendek dan dapat memakai sedikit token. File dibatasi 10 MB per file dan diproses sesuai format; provider/model tetap menentukan dukungannya.</p>
       </form>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="./app.js" defer></script>
+    <script type="module" src="./app.js"></script>
   </body>
 </html>

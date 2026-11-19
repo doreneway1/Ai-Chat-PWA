@@ -1,46 +1,46 @@
 # Orbit AI Chat PWA
 
-Client chat statis di GitHub Pages dengan relay Cloudflare Worker milikmu. Worker menangani CORS dan meneruskan request Chat Completions ke provider. Tidak perlu VPS, tetapi Worker adalah fungsi serverless yang memproses request.
+Chat AI berbasis web dengan beberapa koneksi OpenAI-compatible, pemilihan model lokal berdasarkan tingkat tugas, lampiran, dan riwayat yang tersimpan di browser. PWA statis ini memakai Cloudflare Worker sebagai relay HTTPS/CORS; tidak memerlukan VPS.
 
-## Siapkan relay Cloudflare Worker
+## Menyiapkan Cloudflare Worker
 
-1. Masuk ke [Cloudflare Dashboard](https://dash.cloudflare.com/) atau buat akun.
-2. Buka **Workers & Pages → Create application → Create Worker**. Beri nama, misalnya `orbit-ai-proxy`, lalu deploy Worker contoh.
-3. Buka Worker yang baru dibuat dan pilih **Edit code**.
-4. Di repo `Ai-Chat-PWA`, buka file `projects/ai-chat-pwa/cloudflare/ai-chat-proxy.mjs`. Salin seluruh isinya, ganti kode contoh di editor Worker dengan kode tersebut, lalu pilih **Deploy**.
-5. Catat alamat Worker yang tampil, misalnya `https://orbit-ai-proxy.<subdomain>.workers.dev`.
+1. Di Cloudflare Dashboard, buka **Workers & Pages → Create application → Create Worker**, lalu deploy Worker baru.
+2. Pada Worker, pilih **Edit code**. Salin seluruh isi [`cloudflare/ai-chat-proxy.mjs`](./cloudflare/ai-chat-proxy.mjs), ganti kode contoh, lalu **Deploy**.
+3. Catat alamat Worker, misalnya `https://orbit-ai-proxy.<subdomain>.workers.dev`.
+4. Worker hanya menerima origin `https://doreneway1.github.io` dan host upstream HTTPS yang diizinkan. Host bawaan: `ai.ipeenk.com` dan `kunciai.id`.
+5. Untuk provider lain, tambahkan variable Worker bernama `ALLOWED_UPSTREAM_HOSTS` dengan daftar hostname dipisahkan koma, tanpa skema atau path, misalnya `api.provider-a.com,api.provider-b.com`. Atur melalui **Worker → Settings → Variables and Secrets**, lalu deploy ulang. Jangan mengganti pembatasan host dengan proxy terbuka.
 
-Worker ini hanya menerima origin `https://doreneway1.github.io` dan host upstream `ai.ipeenk.com` serta `kunciai.id`, memakai HTTPS, Base URL berakhiran `/v1`, dan endpoint Chat Completions. Ia bukan proxy terbuka. Jika berpindah provider, host baru harus ditambahkan ke `ALLOWED_UPSTREAM_HOSTS` pada file Worker lalu Worker di-deploy ulang.
+## Mengatur koneksi dan model
 
-## Hubungkan aplikasi dan uji
+Buka aplikasi lalu pilih **⚙ Pengaturan API**:
 
-Di PWA, buka **⚙ Pengaturan API** dan isi:
+- Masukkan URL Cloudflare Worker tanpa path.
+- Tambahkan hingga 10 koneksi. Setiap koneksi memakai nama, Base URL HTTPS provider yang berakhiran `/v1`, API key, dan daftar model.
+- **Muat model** mengambil daftar dari endpoint `/v1/models` provider. Jika tidak tersedia, isi manual, satu per baris: `ID model | fast,balanced,deep,default`.
+- Tekan **Test koneksi** untuk tiap provider. Test menggunakan model pertama di daftar dan dapat memakai sedikit token. Tombol simpan aktif setelah semua koneksi lulus test.
 
-- **URL Cloudflare Worker** — URL Worker `workers.dev` tanpa path.
-- **Base URL API** — URL provider yang host-nya diizinkan Worker, misalnya `https://kunciai.id/v1`.
-- **Model ID atau alias otomatis** — ID persis dari provider, contohnya `kunciai/deepseek-v4.1-flash`.
-- **API key** — key provider.
+Tingkat **Auto**, **Cepat**, **Seimbang**, dan **Mendalam** memilih model lokal dari tag yang kamu berikan pada daftar model. Auto memakai heuristik sederhana di perangkat—tidak mengirim prompt ke router tambahan. Jika tidak ada tag yang cocok, aplikasi mencoba model `default`, lalu `balanced`, lalu model pertama. Pemilihan ini hanya berjalan di antara model yang kamu konfigurasi; bukan layanan perutean lintas provider.
 
-Tekan **Test koneksi**. Tombol **Simpan & hubungkan** aktif hanya jika test berhasil. Test mengirim satu request pendek ke model dan dapat memakai sedikit token. Setelah disimpan, chat diteruskan melalui Worker.
+## Lampiran dan riwayat
 
-## Privasi dan keamanan
+- Maksimal 5 file per pesan, masing-masing maksimal 10 MB.
+- Teks/kode umum dibaca sebagai teks; PDF dibatasi 80 halaman; DOCX, XLSX, PPTX diekstrak di browser; gambar PNG, JPEG, dan WebP dikirim sebagai gambar. Total gambar per pesan maksimal 5 MB.
+- XLSX/PPTX/DOCX diproses di perangkat. Isi yang diekstrak, prompt, dan gambar dikirim ke Worker lalu ke provider saat chat dikirim. Dukungan gambar juga bergantung pada provider/model.
+- Riwayat dan lampiran tersimpan di IndexedDB lokal browser, sedangkan pengaturan termasuk API key tersimpan di localStorage tanpa enkripsi. Data tidak disinkronkan antarperangkat; menghapus data situs/browser dapat menghapusnya.
+- Gaya respons dibuat lugas untuk permintaan aman. Aplikasi tidak dapat menjamin semua output tanpa batasan atau menonaktifkan kebijakan provider.
 
-- API key tetap disimpan di localStorage browser tanpa enkripsi. Gunakan hanya perangkat dan origin yang dipercaya.
-- Kode Worker tidak menulis API key atau prompt ke log dan tidak menyimpannya secara permanen; tetapi Cloudflare memproses request saat meneruskannya, dan provider juga menerima key/prompt.
-- Jangan gunakan URL Worker milik orang lain. Batasi origin dan host sesuai konstanta di source Worker.
-- Worker hanya mengizinkan origin GitHub Pages ini. Preview dari Codespaces/localhost tidak diizinkan secara default.
-- Request test memakai token provider. Isi pesan chat juga dikirim ke provider; periksa kebijakan retensi layanan tersebut.
-- Provider menentukan alias/model yang tersedia, biaya, dan batasan konten. Aplikasi tidak dapat menjamin semua output “uncensored”.
-
-## Menjalankan lokal
+## Pengembangan lokal
 
 ```bash
 cd projects/ai-chat-pwa
-python3 -m http.server 8000
+npm ci
+npm test
+npm run build
+python3 -m http.server 8000 --directory dist
 ```
 
-Preview lokal tidak dapat memakai Worker yang dikonfigurasi untuk GitHub Pages karena origin-nya berbeda. Untuk mengizinkannya, tambahkan origin lokal yang tepat ke `ALLOWED_ORIGINS` di source Worker, lalu deploy ulang.
+Worker bawaan hanya mengizinkan origin GitHub Pages tersebut. Untuk menguji dari localhost, tambahkan origin lokal yang tepat ke `ALLOWED_ORIGINS` di source Worker dan deploy ulang. Jangan tambahkan wildcard origin.
 
-## Hosting dan riwayat
+## Publikasi
 
-Workflow GitHub Actions menerbitkan PWA ke GitHub Pages setelah perubahan di-push ke branch `main`. Riwayat disimpan di IndexedDB pada browser/perangkat masing-masing dan tidak disinkronkan. Pengaturan termasuk API key disimpan terpisah di localStorage setiap origin/perangkat.
+Workflow GitHub Actions membangun PWA dengan Vite lalu menerbitkan folder `dist` ke GitHub Pages. Riwayat dan API key tidak dimasukkan ke bundle. Setelah mengubah source Worker, salin dan deploy ulang Worker secara terpisah melalui Cloudflare Dashboard.

@@ -1,11 +1,27 @@
+import { chooseModel } from './routing.js';
+
 const SETTINGS_KEY = 'orbit.settings.v1';
 const DB_NAME = 'orbit-local-chat';
 const DB_VERSION = 1;
-const MAX_CONTEXT_MESSAGES = 40;
+const MAX_CONTEXT_MESSAGES = 39;
+const MAX_API_CONTEXT_BYTES = 7_500_000;
+const MAX_PROVIDERS = 10;
+const MAX_FILES = 5;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_TOTAL_IMAGES_BYTES = 5 * 1024 * 1024;
+const MAX_EXTRACTED_TEXT = 100_000;
+const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
+const MAX_MODELS_PER_PROVIDER = 100;
+const MODEL_TIERS = new Set(['fast', 'balanced', 'deep', 'default']);
+const SYSTEM_PROMPT =
+  'Jawab secara lugas, relevan, dan sesuai bahasa serta format yang diminta pengguna. ' +
+  'Ikuti instruksi pengguna untuk permintaan yang aman, hindari disclaimer atau penolakan yang tidak perlu, ' +
+  'dan jelaskan singkat bila ada bagian yang tidak dapat dipenuhi.';
 
 const elements = {
   conversationList: document.querySelector('#conversationList'),
   welcome: document.querySelector('#welcome'),
+  chatArea: document.querySelector('.chat-area'),
   messages: document.querySelector('#messages'),
   chatForm: document.querySelector('#chatForm'),
   messageInput: document.querySelector('#messageInput'),
@@ -14,12 +30,14 @@ const elements = {
   settingsForm: document.querySelector('#settingsForm'),
   settingsError: document.querySelector('#settingsError'),
   proxyUrl: document.querySelector('#proxyUrl'),
-  apiBase: document.querySelector('#apiBase'),
-  modelAlias: document.querySelector('#modelAlias'),
-  apiKey: document.querySelector('#apiKey'),
-  testConnection: document.querySelector('#testConnection'),
+  providerList: document.querySelector('#providerList'),
+  addProvider: document.querySelector('#addProvider'),
   connectionStatus: document.querySelector('#connectionStatus'),
   saveSettings: document.querySelector('#saveSettings'),
+  fileInput: document.querySelector('#fileInput'),
+  attachButton: document.querySelector('#attachButton'),
+  attachmentList: document.querySelector('#attachmentList'),
+  aiLevel: document.querySelector('#aiLevel'),
   routeLabel: document.querySelector('#routeLabel'),
   toast: document.querySelector('#toast'),
   sidebar: document.querySelector('#sidebar'),
@@ -31,33 +49,42 @@ let conversations = [];
 let currentConversationId = null;
 let sending = false;
 let toastTimer;
+let selectedFiles = [];
 let settings = readSettings();
-let testedSettingsFingerprint = settings.tested ? fingerprint(settings) : '';
+let providerTestFingerprints = new Map(
+  settings.providers
+    .filter(provider => provider.tested)
+    .map(provider => [provider.id, providerFingerprint(provider, settings.proxyUrl)])
+);
 
 function readSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    let providers = Array.isArray(saved.providers)
+      ? saved.providers.slice(0, MAX_PROVIDERS)
+      : [];
+    if (!providers.length && saved.apiBase && saved.apiKey && (saved.modelAlias || saved.autoModel)) {
+      providers = [{
+        id: 'migrated-provider',
+        name: 'Provider 1',
+        apiBase: saved.apiBase,
+        apiKey: saved.apiKey,
+        models: [{
+          id: saved.modelAlias || saved.autoModel,
+          tiers: ['fast', 'balanced', 'deep', 'default']
+        }],
+        tested: false
+      }];
+    }
     return {
       proxyUrl: saved.proxyUrl || '',
-      apiBase: saved.apiBase || 'https://kunciai.id/v1',
-      modelAlias: saved.modelAlias || saved.autoModel || 'kunciai/deepseek-v4.1-flash',
-      apiKey: saved.apiKey || '',
-      tested: saved.tested === true
+      providers,
+      responseStyle: saved.responseStyle || 'direct'
     };
   } catch (error) {
     showToast(`Pengaturan lokal tidak dapat dibaca: ${error.message}`);
-    return {
-      proxyUrl: '',
-      apiBase: 'https://kunciai.id/v1',
-      modelAlias: 'kunciai/deepseek-v4.1-flash',
-      apiKey: '',
-      tested: false
-    };
+    return { proxyUrl: '', providers: [], responseStyle: 'direct' };
   }
-}
-
-function fingerprint(config) {
-  return JSON.stringify([config.proxyUrl, config.apiBase, config.modelAlias, config.apiKey]);
 }
 
 function openDatabase() {
@@ -182,7 +209,7 @@ function renderMessages() {
   for (const message of conversation.messages) {
     elements.messages.append(createMessageElement(message));
   }
-  elements.messages.scrollTop = elements.messages.scrollHeight;
+  elements.chatArea.scrollTop = elements.chatArea.scrollHeight;
 }
 
 function createMessageElement(message) {
@@ -199,7 +226,23 @@ function createMessageElement(message) {
   role.textContent = message.role === 'user' ? 'Kamu' : 'Orbit';
   const content = document.createElement('div');
   content.className = 'message-content';
-  content.textContent = message.content;
+  if (typeof message.content === 'string') {
+    content.textContent = message.content;
+  } else if (Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (part.type === 'text') {
+        const text = document.createElement('div');
+        text.textContent = part.text;
+        content.append(text);
+      } else if (part.type === 'image_url') {
+        const image = document.createElement('img');
+        image.className = 'message-image';
+        image.alt = 'Lampiran gambar';
+        image.src = typeof part.image_url === 'string' ? part.image_url : part.image_url.url;
+        content.append(image);
+      }
+    }
+  }
   body.append(role, content);
   if (message.model) {
     const actualModel = document.createElement('div');
@@ -230,74 +273,7 @@ function showTyping() {
   body.append(role, dots);
   wrapper.append(avatar, body);
   elements.messages.append(wrapper);
-  elements.messages.scrollTop = elements.messages.scrollHeight;
-}
-
-function getSettingsFromForm() {
-  const proxyUrl = elements.proxyUrl.value.trim().replace(/\/+$/, '');
-  const apiBase = elements.apiBase.value.trim().replace(/\/+$/, '');
-  const modelAlias = elements.modelAlias.value.trim();
-  const apiKey = elements.apiKey.value.trim();
-  if (!proxyUrl || !apiBase || !modelAlias || !apiKey) {
-    throw new Error('URL Worker, Base URL API, model ID/alias, dan API key harus diisi.');
-  }
-
-  let worker;
-  try {
-    worker = new URL(proxyUrl);
-  } catch {
-    throw new Error('URL Cloudflare Worker tidak valid.');
-  }
-  if (worker.protocol !== 'https:' || worker.username || worker.password || worker.search || worker.hash || worker.pathname !== '/') {
-    throw new Error('URL Worker harus berupa alamat HTTPS utama, tanpa path, query, atau kredensial.');
-  }
-
-  let api;
-  try {
-    api = new URL(apiBase);
-  } catch {
-    throw new Error('Base URL API tidak valid.');
-  }
-  if (api.protocol !== 'https:' || api.username || api.password || api.search || api.hash) {
-    throw new Error('Base URL API harus HTTPS dan tidak boleh berisi kredensial, query, atau fragment.');
-  }
-  return { proxyUrl, apiBase, modelAlias, apiKey };
-}
-
-function updateSettingsForm() {
-  elements.proxyUrl.value = settings.proxyUrl;
-  elements.apiBase.value = settings.apiBase;
-  elements.modelAlias.value = settings.modelAlias;
-  elements.apiKey.value = settings.apiKey;
-  elements.routeLabel.textContent = settings.modelAlias ? `Model · ${settings.modelAlias}` : 'Model belum diatur';
-  updateConnectionStatus();
-}
-
-function updateConnectionStatus(message) {
-  if (message) {
-    elements.connectionStatus.textContent = message;
-    return;
-  }
-
-  let matchesLastTest = false;
-  try {
-    matchesLastTest = Boolean(
-      testedSettingsFingerprint &&
-      fingerprint(getSettingsFromForm()) === testedSettingsFingerprint
-    );
-  } catch {
-    matchesLastTest = false;
-  }
-  elements.saveSettings.disabled = !matchesLastTest;
-  elements.connectionStatus.textContent = matchesLastTest
-    ? 'Koneksi sudah diuji. Pengaturan siap disimpan.'
-    : 'Tes koneksi sebelum menyimpan.';
-}
-
-function openSettings() {
-  updateSettingsForm();
-  elements.settingsError.textContent = '';
-  elements.settingsDialog.showModal();
+  elements.chatArea.scrollTop = elements.chatArea.scrollHeight;
 }
 
 function showToast(message) {
@@ -305,6 +281,260 @@ function showToast(message) {
   elements.toast.classList.add('visible');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => elements.toast.classList.remove('visible'), 4000);
+}
+
+function extensionOf(name) {
+  return name.split('.').pop()?.toLowerCase() || '';
+}
+
+function validateZipArchive(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const searchStart = Math.max(0, bytes.length - 65_557);
+  let endOffset = -1;
+  for (let offset = bytes.length - 22; offset >= searchStart; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      endOffset = offset;
+      break;
+    }
+  }
+  if (endOffset < 0) throw new Error('Arsip Office tidak valid.');
+
+  const diskNumber = view.getUint16(endOffset + 4, true);
+  const centralDisk = view.getUint16(endOffset + 6, true);
+  const diskEntries = view.getUint16(endOffset + 8, true);
+  const entryCount = view.getUint16(endOffset + 10, true);
+  const centralOffset = view.getUint32(endOffset + 16, true);
+  if (
+    diskNumber !== 0 ||
+    centralDisk !== 0 ||
+    diskEntries !== entryCount ||
+    entryCount > 2_000 ||
+    centralOffset === 0xffffffff
+  ) {
+    throw new Error('Format arsip Office tidak didukung atau terlalu besar.');
+  }
+
+  let offset = centralOffset;
+  let uncompressedBytes = 0;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (offset + 46 > bytes.length || view.getUint32(offset, true) !== 0x02014b50) {
+      throw new Error('Daftar isi arsip Office tidak valid.');
+    }
+    const flags = view.getUint16(offset + 8, true);
+    const uncompressedSize = view.getUint32(offset + 24, true);
+    const nameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    if ((flags & 1) || uncompressedSize === 0xffffffff) {
+      throw new Error('Arsip Office terenkripsi atau memakai format ZIP64 yang tidak didukung.');
+    }
+    uncompressedBytes += uncompressedSize;
+    if (uncompressedBytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES) {
+      throw new Error('Isi file Office terlalu besar untuk diproses dengan aman di browser.');
+    }
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+}
+
+function parseXml(xml, description) {
+  const document = new DOMParser().parseFromString(xml, 'application/xml');
+  if (document.querySelector('parsererror')) throw new Error(`${description} tidak valid.`);
+  return document;
+}
+
+function xmlTexts(element) {
+  return [...element.getElementsByTagNameNS('*', 't')].map(node => node.textContent || '').join('');
+}
+
+function normalizedZipPath(path) {
+  const segments = [];
+  for (const segment of path.replace(/^\/+/, '').split('/')) {
+    if (segment === '..') segments.pop();
+    else if (segment && segment !== '.') segments.push(segment);
+  }
+  return segments.join('/');
+}
+
+function columnIndex(reference) {
+  const letters = reference.match(/^[A-Z]+/i)?.[0]?.toUpperCase() || '';
+  let index = 0;
+  for (const letter of letters) index = index * 26 + letter.charCodeAt(0) - 64;
+  return Math.max(0, index - 1);
+}
+
+function extractSpreadsheet(archive) {
+  const decode = bytes => new TextDecoder().decode(bytes);
+  const workbookXml = archive['xl/workbook.xml'];
+  const relationshipsXml = archive['xl/_rels/workbook.xml.rels'];
+  if (!workbookXml || !relationshipsXml) throw new Error('Struktur spreadsheet tidak lengkap.');
+
+  const workbook = parseXml(decode(workbookXml), 'Daftar sheet');
+  const relationships = parseXml(decode(relationshipsXml), 'Referensi sheet');
+  const targets = new Map(
+    [...relationships.getElementsByTagNameNS('*', 'Relationship')]
+      .map(item => [item.getAttribute('Id'), item.getAttribute('Target')])
+  );
+  const sharedStrings = archive['xl/sharedStrings.xml']
+    ? [...parseXml(decode(archive['xl/sharedStrings.xml']), 'Tabel teks')
+      .getElementsByTagNameNS('*', 'si')].map(xmlTexts)
+    : [];
+  const output = [];
+
+  for (const sheet of workbook.getElementsByTagNameNS('*', 'sheet')) {
+    const name = sheet.getAttribute('name') || 'Sheet';
+    const relationshipId = sheet.getAttributeNS(
+      'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+      'id'
+    );
+    const target = targets.get(relationshipId);
+    if (!target) continue;
+    const targetPath = normalizedZipPath(target.startsWith('/')
+      ? target
+      : target.startsWith('xl/') ? target : `xl/${target}`);
+    const sheetBytes = archive[targetPath];
+    if (!sheetBytes) continue;
+
+    const sheetXml = parseXml(decode(sheetBytes), `Sheet ${name}`);
+    output.push(`## ${name}`);
+    for (const row of sheetXml.getElementsByTagNameNS('*', 'row')) {
+      const cells = [...row.getElementsByTagNameNS('*', 'c')].filter(cell => cell.parentElement === row);
+      const values = [];
+      for (const cell of cells) {
+        const index = columnIndex(cell.getAttribute('r') || '');
+        const valueNode = cell.getElementsByTagNameNS('*', 'v')[0];
+        const inlineText = cell.getElementsByTagNameNS('*', 'is')[0];
+        const rawValue = valueNode?.textContent || (inlineText ? xmlTexts(inlineText) : '');
+        const value = cell.getAttribute('t') === 's'
+          ? sharedStrings[Number(rawValue)] || ''
+          : rawValue;
+        values[index] = value;
+      }
+      output.push(values.map(value => value || '').join('\t'));
+      if (output.join('\n').length > MAX_EXTRACTED_TEXT) {
+        throw new Error('Isi spreadsheet melewati batas teks yang dapat diproses.');
+      }
+    }
+  }
+  return output.join('\n').slice(0, MAX_EXTRACTED_TEXT);
+}
+
+function extractPresentation(archive) {
+  const decode = bytes => new TextDecoder().decode(bytes);
+  const slides = Object.keys(archive)
+    .map(path => ({ path, match: path.match(/^ppt\/slides\/slide(\d+)\.xml$/) }))
+    .filter(item => item.match)
+    .sort((left, right) => Number(left.match[1]) - Number(right.match[1]));
+  if (!slides.length) throw new Error('Tidak ada slide yang dapat dibaca.');
+  const output = [];
+  for (const slide of slides.slice(0, 100)) {
+    const document = parseXml(decode(archive[slide.path]), 'Slide');
+    output.push(`## Slide ${slide.match[1]}`);
+    output.push(...[...document.getElementsByTagNameNS('*', 'p')].map(xmlTexts).filter(Boolean));
+    if (output.join('\n').length > MAX_EXTRACTED_TEXT) break;
+  }
+  return output.join('\n').slice(0, MAX_EXTRACTED_TEXT);
+}
+
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error(`Gagal membaca ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function extractFile(file) {
+  if (file.size > MAX_FILE_BYTES) {
+    throw new Error(`${file.name}: ukuran file melebihi 10 MB.`);
+  }
+  const extension = extensionOf(file.name);
+  if (['png', 'jpg', 'jpeg', 'webp'].includes(extension)) {
+    if (file.type && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      throw new Error(`${file.name}: format gambar harus PNG, JPEG, atau WebP.`);
+    }
+    return { kind: 'image', dataUrl: await readAsDataUrl(file) };
+  }
+
+  if (extension === 'pdf') {
+    const [pdfjsLib, workerAsset] = await Promise.all([
+      import('pdfjs-dist'),
+      import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+    ]);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = workerAsset.default;
+    const pdf = await pdfjsLib.getDocument({
+      data: new Uint8Array(await file.arrayBuffer()),
+      isEvalSupported: false
+    }).promise;
+    const pageCount = Math.min(pdf.numPages, 80);
+    const pages = [];
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      pages.push(content.items.map(item => 'str' in item ? item.str : '').filter(Boolean).join(' '));
+      if (pages.join('\n').length > MAX_EXTRACTED_TEXT) break;
+    }
+    return {
+      kind: 'text',
+      text: pages.join('\n').slice(0, MAX_EXTRACTED_TEXT) +
+        (pdf.numPages > pageCount ? '\n[Dokumen dipotong setelah 80 halaman.]' : '')
+    };
+  }
+
+  if (['docx', 'xlsx', 'pptx'].includes(extension)) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    validateZipArchive(bytes);
+    if (extension === 'docx') {
+      const { default: mammoth } = await import('mammoth/mammoth.browser');
+      const result = await mammoth.extractRawText({ arrayBuffer: bytes.buffer });
+      return { kind: 'text', text: result.value.slice(0, MAX_EXTRACTED_TEXT) };
+    }
+    const { unzipSync } = await import('fflate');
+    const archive = unzipSync(bytes);
+    return {
+      kind: 'text',
+      text: extension === 'xlsx' ? extractSpreadsheet(archive) : extractPresentation(archive)
+    };
+  }
+
+  const textExtensions = /^(txt|md|markdown|csv|tsv|json|jsonl|xml|ya?ml|toml|ini|log|html?|css|js|mjs|cjs|ts|jsx|tsx|vue|svelte|py|ipynb|java|kt|kts|cs|c|h|hpp|cpp|go|rs|rb|php|swift|sh|bash|ps1|sql|tf|properties|gradle|r|lua|pl|dockerfile|env)$/;
+  const textMimeTypes = new Set([
+    'application/json',
+    'application/xml',
+    'application/javascript',
+    'application/x-yaml',
+    'application/sql'
+  ]);
+  if (textExtensions.test(extension) || file.type.startsWith('text/') || textMimeTypes.has(file.type)) {
+    const text = await file.text();
+    if (text.length > MAX_EXTRACTED_TEXT) throw new Error(`${file.name}: teks melebihi batas 100.000 karakter.`);
+    return { kind: 'text', text };
+  }
+  throw new Error(`${file.name}: format file tidak didukung.`);
+}
+
+async function createUserContent(text, files) {
+  const parts = [];
+  if (text) parts.push({ type: 'text', text });
+  let totalImageBytes = 0;
+  let totalText = text.length;
+  for (const file of files) {
+    const extracted = await extractFile(file);
+    if (extracted.kind === 'image') {
+      totalImageBytes += file.size;
+      if (totalImageBytes > MAX_TOTAL_IMAGES_BYTES) {
+        throw new Error('Total ukuran gambar dalam satu pesan maksimal 5 MB.');
+      }
+      parts.push({ type: 'text', text: `[Gambar terlampir: ${file.name}]` });
+      parts.push({ type: 'image_url', image_url: { url: extracted.dataUrl } });
+    } else {
+      totalText += extracted.text.length;
+      if (totalText > MAX_EXTRACTED_TEXT) throw new Error('Total teks pesan dan lampiran maksimal 100.000 karakter.');
+      parts.push({ type: 'text', text: `[File: ${file.name}]\n${extracted.text}` });
+    }
+  }
+  if (parts.length === 1 && parts[0].type === 'text') return parts[0].text;
+  return parts;
 }
 
 async function readJsonResponse(response) {
@@ -326,55 +556,287 @@ async function readJsonResponse(response) {
   return payload;
 }
 
-async function testConnection() {
-  elements.settingsError.textContent = '';
-  let config;
+function validateProxyUrl(value) {
+  const proxyUrl = value.trim().replace(/\/+$/, '');
+  let url;
   try {
-    config = getSettingsFromForm();
+    url = new URL(proxyUrl);
+  } catch {
+    throw new Error('URL Cloudflare Worker tidak valid.');
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
+    throw new Error('URL Worker harus berupa alamat HTTPS utama, tanpa path, query, atau kredensial.');
+  }
+  return proxyUrl;
+}
+
+function parseModels(text) {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (!lines.length) throw new Error('Tambahkan setidaknya satu model atau muat daftar model dari API.');
+  if (lines.length > MAX_MODELS_PER_PROVIDER) {
+    throw new Error(`Maksimal ${MAX_MODELS_PER_PROVIDER} model per provider.`);
+  }
+  const seen = new Set();
+  return lines.map((line, index) => {
+    const [rawId, rawTiers = 'balanced'] = line.split('|');
+    const id = rawId.trim();
+    const tiers = rawTiers.split(',').map(tier => tier.trim().toLowerCase()).filter(Boolean);
+    if (!id || id.length > 200) throw new Error(`ID model pada baris ${index + 1} tidak valid.`);
+    if (seen.has(id)) throw new Error(`Model "${id}" tercantum lebih dari sekali.`);
+    seen.add(id);
+    const invalidTier = tiers.find(tier => !MODEL_TIERS.has(tier));
+    if (invalidTier) throw new Error(`Level "${invalidTier}" tidak dikenal. Gunakan fast, balanced, deep, atau default.`);
+    return { id, tiers: tiers.length ? [...new Set(tiers)] : ['balanced'] };
+  });
+}
+
+function providerFromCard(card) {
+  const name = card.querySelector('[data-field="name"]').value.trim();
+  const apiBase = card.querySelector('[data-field="apiBase"]').value.trim().replace(/\/+$/, '');
+  const apiKey = card.querySelector('[data-field="apiKey"]').value.trim();
+  const models = parseModels(card.querySelector('[data-field="models"]').value);
+  if (!name || !apiBase || !apiKey) throw new Error('Isi nama provider, Base URL, dan API key.');
+
+  let url;
+  try {
+    url = new URL(apiBase);
+  } catch {
+    throw new Error('Base URL provider tidak valid.');
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    throw new Error('Base URL provider harus HTTPS dan tidak boleh berisi kredensial, query, atau fragment.');
+  }
+  return { id: card.dataset.providerId, name, apiBase, apiKey, models };
+}
+
+function providerFingerprint(provider, proxyUrl = elements.proxyUrl.value.trim().replace(/\/+$/, '')) {
+  return JSON.stringify([
+    proxyUrl,
+    provider.apiBase,
+    provider.apiKey,
+    provider.models
+  ]);
+}
+
+function createField(labelText, input) {
+  const label = document.createElement('label');
+  label.textContent = labelText;
+  label.append(input);
+  return label;
+}
+
+function makeInput(field, type, placeholder, value = '') {
+  const input = document.createElement('input');
+  input.dataset.field = field;
+  input.type = type;
+  input.placeholder = placeholder;
+  input.value = value;
+  input.autocomplete = type === 'password' ? 'off' : 'off';
+  return input;
+}
+
+function makeProviderCard(provider = {}) {
+  const id = provider.id || crypto.randomUUID();
+  const card = document.createElement('section');
+  card.className = 'provider-card';
+  card.dataset.providerId = id;
+
+  const header = document.createElement('div');
+  header.className = 'provider-card-header';
+  const title = document.createElement('h3');
+  title.textContent = provider.name || 'Koneksi provider';
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'remove-provider';
+  remove.textContent = 'Hapus';
+  remove.setAttribute('aria-label', `Hapus koneksi ${provider.name || 'provider'}`);
+  remove.addEventListener('click', () => {
+    providerTestFingerprints.delete(id);
+    card.remove();
+    updateProviderSaveState();
+  });
+  header.append(title, remove);
+
+  const nameInput = makeInput('name', 'text', 'Contoh: Kunciai', provider.name || '');
+  const baseInput = makeInput('apiBase', 'url', 'https://provider.example/v1', provider.apiBase || '');
+  const keyInput = makeInput('apiKey', 'password', 'API key provider', provider.apiKey || '');
+  const modelInput = document.createElement('textarea');
+  modelInput.dataset.field = 'models';
+  modelInput.rows = 3;
+  modelInput.placeholder = 'model-id | balanced,deep';
+  modelInput.value = (provider.models || [])
+    .map(model => `${model.id} | ${(model.tiers || ['balanced']).join(',')}`)
+    .join('\n');
+
+  const actions = document.createElement('div');
+  actions.className = 'provider-actions';
+  const loadModels = document.createElement('button');
+  loadModels.type = 'button';
+  loadModels.className = 'text-button';
+  loadModels.textContent = 'Muat model';
+  const test = document.createElement('button');
+  test.type = 'button';
+  test.className = 'text-button';
+  test.textContent = 'Test koneksi';
+  const status = document.createElement('span');
+  status.className = 'provider-status';
+  status.dataset.field = 'status';
+  status.textContent = provider.tested ? 'Tersimpan' : 'Belum diuji';
+
+  loadModels.addEventListener('click', () => loadProviderModels(card, loadModels));
+  test.addEventListener('click', () => testProvider(card, test));
+  actions.append(loadModels, test, status);
+  card.append(
+    header,
+    createField('Nama provider', nameInput),
+    createField('Base URL', baseInput),
+    createField('API key', keyInput),
+    createField('Model dan level', modelInput),
+    actions
+  );
+
+  card.querySelectorAll('input, textarea').forEach(input => {
+    input.addEventListener('input', () => {
+      if (input.dataset.field === 'name') {
+        title.textContent = input.value.trim() || 'Koneksi provider';
+      } else {
+        status.textContent = 'Perubahan perlu diuji ulang';
+      }
+      updateProviderSaveState();
+    });
+  });
+  return card;
+}
+
+function renderProviderCards(providers) {
+  elements.providerList.replaceChildren();
+  const initialProviders = providers.length ? providers : [{}];
+  for (const provider of initialProviders) elements.providerList.append(makeProviderCard(provider));
+  updateProviderSaveState();
+}
+
+function updateProviderSaveState() {
+  const cards = [...elements.providerList.querySelectorAll('.provider-card')];
+  const readyCount = cards.filter(card => {
+    try {
+      const provider = providerFromCard(card);
+      return providerTestFingerprints.get(provider.id) === providerFingerprint(provider);
+    } catch {
+      return false;
+    }
+  }).length;
+  elements.addProvider.disabled = cards.length >= MAX_PROVIDERS;
+  elements.saveSettings.disabled = cards.length === 0 || readyCount !== cards.length;
+  elements.connectionStatus.textContent = cards.length
+    ? `${readyCount} dari ${cards.length} koneksi sudah diuji.`
+    : 'Tambahkan minimal satu koneksi provider.';
+}
+
+async function loadProviderModels(card, button) {
+  const status = card.querySelector('[data-field="status"]');
+  let proxyUrl;
+  let apiBase;
+  let apiKey;
+  try {
+    proxyUrl = validateProxyUrl(elements.proxyUrl.value);
+    apiBase = card.querySelector('[data-field="apiBase"]').value.trim().replace(/\/+$/, '');
+    apiKey = card.querySelector('[data-field="apiKey"]').value.trim();
+    if (!apiBase || !apiKey) throw new Error('Isi Base URL dan API key sebelum memuat model.');
   } catch (error) {
-    elements.settingsError.textContent = error.message;
+    status.textContent = error.message;
     return;
   }
 
-  elements.testConnection.disabled = true;
-  elements.saveSettings.disabled = true;
-  updateConnectionStatus('Menguji Worker, API key, dan model...');
+  button.disabled = true;
+  status.textContent = 'Memuat daftar model...';
   try {
-    const response = await fetch(`${config.proxyUrl}/api/test`, {
+    const response = await fetch(`${proxyUrl}/api/models`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`
-      },
-      body: JSON.stringify({ baseUrl: config.apiBase, model: config.modelAlias })
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ baseUrl: apiBase })
     });
     const payload = await readJsonResponse(response);
-    if (payload?.success !== true) throw new Error('Relay tidak mengonfirmasi koneksi berhasil.');
+    const ids = [...new Set((Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [])
+      .map(model => typeof model === 'string' ? model : model?.id)
+      .filter(id =>
+        typeof id === 'string' &&
+        id.trim() &&
+        id.length <= 200 &&
+        !/[\r\n|]/.test(id)
+      ))]
+      .slice(0, MAX_MODELS_PER_PROVIDER);
+    if (!ids.length) throw new Error('API tidak mengembalikan daftar model. Tambahkan ID model secara manual.');
 
-    let currentFingerprint = '';
-    try {
-      currentFingerprint = fingerprint(getSettingsFromForm());
-    } catch {
-      currentFingerprint = '';
-    }
-    if (currentFingerprint !== fingerprint(config)) {
-      testedSettingsFingerprint = '';
-      updateConnectionStatus('Pengaturan berubah saat pengujian. Jalankan test lagi.');
+    const input = card.querySelector('[data-field="models"]');
+    const currentIds = new Set(input.value.split(/\r?\n/).map(line => line.split('|')[0].trim()).filter(Boolean));
+    const newLines = ids.filter(id => !currentIds.has(id)).map(id => `${id} | balanced`);
+    input.value = [input.value.trim(), ...newLines].filter(Boolean).join('\n');
+    input.dispatchEvent(new Event('input'));
+    status.textContent = `${ids.length} model ditemukan. Pilih level untuk tiap model.`;
+  } catch (error) {
+    status.textContent = error instanceof TypeError
+      ? 'Worker tidak dapat dijangkau; periksa URL Worker.'
+      : `Gagal memuat model: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function testProvider(card, button) {
+  const status = card.querySelector('[data-field="status"]');
+  let proxyUrl;
+  let provider;
+  try {
+    proxyUrl = validateProxyUrl(elements.proxyUrl.value);
+    provider = providerFromCard(card);
+  } catch (error) {
+    status.textContent = error.message;
+    updateProviderSaveState();
+    return;
+  }
+
+  const model = provider.models[0];
+  button.disabled = true;
+  status.textContent = `Menguji ${model.id}...`;
+  try {
+    const response = await fetch(`${proxyUrl}/api/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.apiKey}` },
+      body: JSON.stringify({ baseUrl: provider.apiBase, model: model.id })
+    });
+    const payload = await readJsonResponse(response);
+    if (payload?.success !== true) throw new Error('Provider tidak mengonfirmasi koneksi.');
+    const currentProvider = providerFromCard(card);
+    if (providerFingerprint(currentProvider) !== providerFingerprint(provider)) {
+      status.textContent = 'Pengaturan berubah saat diuji. Test lagi.';
       return;
     }
-
-    testedSettingsFingerprint = fingerprint(config);
-    elements.saveSettings.disabled = false;
-    updateConnectionStatus(`Berhasil terhubung${payload.model ? ` · ${payload.model}` : ''}. Kamu bisa menyimpan pengaturan.`);
+    providerTestFingerprints.set(provider.id, providerFingerprint(provider));
+    status.textContent = `Terhubung: ${payload.model || model.id}`;
   } catch (error) {
-    testedSettingsFingerprint = '';
-    elements.saveSettings.disabled = true;
-    updateConnectionStatus(error instanceof TypeError
-      ? 'Worker tidak dapat dijangkau atau origin belum diizinkan. Periksa URL dan konfigurasi Worker.'
-      : `Tes gagal: ${error.message}`);
+    providerTestFingerprints.delete(provider.id);
+    status.textContent = error instanceof TypeError
+      ? 'Worker tidak dapat dijangkau atau origin tidak diizinkan.'
+      : `Tes gagal: ${error.message}`;
   } finally {
-    elements.testConnection.disabled = false;
+    button.disabled = false;
+    updateProviderSaveState();
   }
+}
+
+function updateSettingsForm() {
+  elements.proxyUrl.value = settings.proxyUrl;
+  renderProviderCards(settings.providers);
+  elements.routeLabel.textContent = settings.providers[0]?.models?.[0]?.id
+    ? `Model · ${settings.providers[0].models[0].id}`
+    : 'Pilih tingkat AI';
+  elements.aiLevel.value = localStorage.getItem('orbit.aiLevel.v1') || 'auto';
+}
+
+function openSettings() {
+  updateSettingsForm();
+  elements.settingsError.textContent = '';
+  elements.settingsDialog.showModal();
 }
 
 function closeSidebar() {
@@ -382,31 +844,117 @@ function closeSidebar() {
   elements.sidebarBackdrop.classList.remove('visible');
 }
 
+function getSettingsFromForm() {
+  const proxyUrl = validateProxyUrl(elements.proxyUrl.value);
+  const cards = [...elements.providerList.querySelectorAll('.provider-card')];
+  if (!cards.length || cards.length > MAX_PROVIDERS) {
+    throw new Error(`Tambahkan 1 sampai ${MAX_PROVIDERS} koneksi provider.`);
+  }
+  const providers = cards.map(card => {
+    const provider = providerFromCard(card);
+    if (providerTestFingerprints.get(provider.id) !== providerFingerprint(provider, proxyUrl)) {
+      throw new Error(`Test koneksi "${provider.name}" dengan pengaturan terbaru sebelum menyimpan.`);
+    }
+    return { ...provider, tested: true };
+  });
+  return { proxyUrl, providers, responseStyle: 'direct' };
+}
+
+function renderSelectedFiles() {
+  elements.attachmentList.replaceChildren();
+  elements.attachmentList.hidden = selectedFiles.length === 0;
+  selectedFiles.forEach((file, index) => {
+    const chip = document.createElement('span');
+    chip.className = 'attachment-chip';
+    const name = document.createElement('span');
+    name.textContent = file.name;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', `Hapus lampiran ${file.name}`);
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      selectedFiles.splice(index, 1);
+      renderSelectedFiles();
+    });
+    chip.append(name, remove);
+    elements.attachmentList.append(chip);
+  });
+}
+
+function apiMessages(conversation) {
+  const history = conversation.messages
+    .filter(message => !message.error)
+    .slice(-MAX_CONTEXT_MESSAGES);
+  let lastUserIndex = -1;
+  history.forEach((message, index) => {
+    if (message.role === 'user') lastUserIndex = index;
+  });
+  const messages = history.map((message, index) => {
+    let content = message.content;
+    if (Array.isArray(content) && index !== lastUserIndex) {
+      content = content.filter(part => part.type === 'text');
+    }
+    return { role: message.role, content };
+  });
+  const systemMessage = { role: 'system', content: SYSTEM_PROMPT };
+  const encoder = new TextEncoder();
+  let usedBytes = encoder.encode(JSON.stringify(systemMessage)).byteLength;
+  const recentMessages = [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const messageBytes = encoder.encode(JSON.stringify(messages[index])).byteLength + 1;
+    if (usedBytes + messageBytes > MAX_API_CONTEXT_BYTES) break;
+    usedBytes += messageBytes;
+    recentMessages.push(messages[index]);
+  }
+  return [systemMessage, ...recentMessages.reverse()];
+}
+
 async function sendMessage(text) {
-  if (!settings.proxyUrl || !settings.apiBase || !settings.modelAlias || !settings.apiKey || !settings.tested) {
+  if (!settings.proxyUrl || !settings.providers.length) {
     openSettings();
-    showToast('Lengkapi pengaturan, test koneksi, lalu simpan sebelum mengirim chat.');
+    showToast('Tambahkan provider, test koneksi, lalu simpan sebelum mengirim chat.');
     return;
   }
   if (sending) return;
+  const files = [...selectedFiles];
+  if (!text && !files.length) return;
+
+  let route;
+  try {
+    route = chooseModel(
+      settings.providers.filter(provider => provider.tested),
+      text || 'Analisis lampiran',
+      elements.aiLevel.value
+    );
+  } catch (error) {
+    showToast(error.message);
+    openSettings();
+    return;
+  }
   sending = true;
   elements.sendButton.disabled = true;
+  elements.attachButton.disabled = true;
+  elements.fileInput.disabled = true;
 
   const now = Date.now();
-  const conversation = activeConversation() || {
-    id: crypto.randomUUID(),
-    title: text.trim().replace(/\s+/g, ' ').slice(0, 42) || 'Percakapan baru',
-    messages: [],
-    createdAt: now,
-    updatedAt: now
-  };
-  currentConversationId = conversation.id;
-  conversation.messages.push({ role: 'user', content: text, createdAt: now });
-  conversation.updatedAt = now;
-  elements.messageInput.value = '';
-  elements.messageInput.style.height = 'auto';
-
+  let conversation;
   try {
+    if (files.length > MAX_FILES) throw new Error(`Maksimal ${MAX_FILES} file per pesan.`);
+    const content = await createUserContent(text, files);
+    selectedFiles = [];
+    renderSelectedFiles();
+    conversation = activeConversation() || {
+      id: crypto.randomUUID(),
+      title: (text || files[0]?.name || 'Percakapan baru').trim().replace(/\s+/g, ' ').slice(0, 42),
+      messages: [],
+      createdAt: now,
+      updatedAt: now
+    };
+    currentConversationId = conversation.id;
+    conversation.messages.push({ role: 'user', content, createdAt: now });
+    conversation.updatedAt = now;
+    elements.messageInput.value = '';
+    elements.messageInput.style.height = 'auto';
     await saveConversation(conversation);
     renderMessages();
     showTyping();
@@ -415,53 +963,62 @@ async function sendMessage(text) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.apiKey}`
+        Authorization: `Bearer ${route.provider.apiKey}`
       },
       body: JSON.stringify({
-        baseUrl: settings.apiBase,
-        model: settings.modelAlias,
-        messages: conversation.messages
-          .filter(message => !message.error)
-          .slice(-MAX_CONTEXT_MESSAGES)
-          .map(({ role, content }) => ({ role, content })),
-          temperature: 0.7,
-          max_tokens: 500
+        baseUrl: route.provider.apiBase,
+        model: route.model.id,
+        messages: apiMessages(conversation),
+        temperature: 0.7,
+        max_tokens: 1_000
       })
     });
     const payload = await readJsonResponse(response);
-    const reply = payload?.choices?.[0]?.message?.content;
-    if (typeof reply !== 'string' || !reply.trim()) {
+    const responseContent = payload?.choices?.[0]?.message?.content;
+    const reply = typeof responseContent === 'string'
+      ? responseContent
+      : Array.isArray(responseContent)
+        ? responseContent.filter(part => part?.type === 'text').map(part => part.text).join('\n')
+        : '';
+    if (!reply.trim()) {
       throw new Error('API tidak mengembalikan teks jawaban yang valid.');
     }
 
     conversation.messages.push({
       role: 'assistant',
       content: reply.trim(),
-      model: typeof payload.model === 'string' ? payload.model : settings.modelAlias,
+      model: typeof payload.model === 'string' ? payload.model : route.model.id,
       createdAt: Date.now()
     });
     conversation.updatedAt = Date.now();
     await saveConversation(conversation);
-    elements.routeLabel.textContent = `Model · ${typeof payload.model === 'string' ? payload.model : settings.modelAlias}`;
+    elements.routeLabel.textContent =
+      `${route.provider.name} · ${typeof payload.model === 'string' ? payload.model : route.model.id} · ${route.tier}`;
   } catch (error) {
-    conversation.messages.push({
-      role: 'assistant',
-      content: error instanceof TypeError
-        ? 'Browser gagal menjangkau Cloudflare Worker. Pastikan Worker aktif, URL benar, dan origin GitHub Pages diizinkan oleh Worker.'
-        : `Gagal menghubungi API: ${error.message}`,
-      error: true,
-      createdAt: Date.now()
-    });
-    conversation.updatedAt = Date.now();
-    try {
-      await saveConversation(conversation);
-    } catch (saveError) {
-      showToast(`Jawaban gagal dan riwayat tidak dapat disimpan: ${saveError.message}`);
+    if (!conversation) {
+      showToast(`Lampiran tidak dapat diproses: ${error.message}`);
+    } else {
+      conversation.messages.push({
+        role: 'assistant',
+        content: error instanceof TypeError
+          ? 'Browser gagal menjangkau Cloudflare Worker. Pastikan Worker aktif, URL benar, dan origin GitHub Pages diizinkan oleh Worker.'
+          : `Gagal menghubungi API: ${error.message}`,
+        error: true,
+        createdAt: Date.now()
+      });
+      conversation.updatedAt = Date.now();
+      try {
+        await saveConversation(conversation);
+      } catch (saveError) {
+        showToast(`Jawaban gagal dan riwayat tidak dapat disimpan: ${saveError.message}`);
+      }
     }
   } finally {
     document.querySelector('#typingIndicator')?.remove();
     sending = false;
     elements.sendButton.disabled = false;
+    elements.attachButton.disabled = false;
+    elements.fileInput.disabled = false;
     renderMessages();
     elements.messageInput.focus();
   }
@@ -470,7 +1027,19 @@ async function sendMessage(text) {
 elements.chatForm.addEventListener('submit', event => {
   event.preventDefault();
   const text = elements.messageInput.value.trim();
-  if (text) sendMessage(text);
+  if (text || selectedFiles.length) sendMessage(text);
+});
+
+elements.attachButton.addEventListener('click', () => elements.fileInput.click());
+elements.fileInput.addEventListener('change', () => {
+  const availableSlots = MAX_FILES - selectedFiles.length;
+  const additions = [...elements.fileInput.files].slice(0, Math.max(0, availableSlots));
+  if (elements.fileInput.files.length > availableSlots) {
+    showToast(`Maksimal ${MAX_FILES} file per pesan.`);
+  }
+  selectedFiles.push(...additions);
+  elements.fileInput.value = '';
+  renderSelectedFiles();
 });
 
 elements.messageInput.addEventListener('keydown', event => {
@@ -488,15 +1057,18 @@ elements.messageInput.addEventListener('input', () => {
 document.querySelector('#newChat').addEventListener('click', createConversation);
 document.querySelector('#openSettings').addEventListener('click', openSettings);
 document.querySelector('#openSettingsTop').addEventListener('click', openSettings);
-elements.testConnection.addEventListener('click', testConnection);
+elements.addProvider.addEventListener('click', () => {
+  const cards = elements.providerList.querySelectorAll('.provider-card');
+  if (cards.length >= MAX_PROVIDERS) return;
+  elements.providerList.append(makeProviderCard());
+  updateProviderSaveState();
+});
+elements.proxyUrl.addEventListener('input', updateProviderSaveState);
+elements.aiLevel.addEventListener('change', () => {
+  localStorage.setItem('orbit.aiLevel.v1', elements.aiLevel.value);
+});
 document.querySelector('#closeSettings').addEventListener('click', () => elements.settingsDialog.close());
 document.querySelector('#cancelSettings').addEventListener('click', () => elements.settingsDialog.close());
-[
-  elements.proxyUrl,
-  elements.apiBase,
-  elements.modelAlias,
-  elements.apiKey
-].forEach(input => input.addEventListener('input', () => updateConnectionStatus()));
 document.querySelector('#openSidebar').addEventListener('click', () => {
   elements.sidebar.classList.add('open');
   elements.sidebarBackdrop.classList.add('visible');
@@ -517,12 +1089,11 @@ elements.settingsForm.addEventListener('submit', event => {
   elements.settingsError.textContent = '';
   try {
     const updatedSettings = getSettingsFromForm();
-    if (fingerprint(updatedSettings) !== testedSettingsFingerprint) {
-      throw new Error('Test koneksi dengan pengaturan terbaru sebelum menyimpan.');
-    }
-    updatedSettings.tested = true;
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(updatedSettings));
     settings = updatedSettings;
+    providerTestFingerprints = new Map(
+      updatedSettings.providers.map(provider => [provider.id, providerFingerprint(provider, updatedSettings.proxyUrl)])
+    );
     updateSettingsForm();
     elements.settingsDialog.close();
     showToast('Pengaturan disimpan lokal di browser ini.');
@@ -547,7 +1118,7 @@ async function initialize() {
   } catch (error) {
     showToast(`Riwayat lokal tidak tersedia: ${error.message}`);
   }
-  if (!settings.proxyUrl || !settings.apiBase || !settings.apiKey || !settings.modelAlias || !settings.tested) {
+  if (!settings.proxyUrl || !settings.providers.some(provider => provider.tested)) {
     openSettings();
   }
   if ('serviceWorker' in navigator) {
