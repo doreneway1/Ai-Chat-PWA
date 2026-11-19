@@ -1,4 +1,5 @@
 import { chooseModel } from './routing.js';
+import { replaceCodeBlock, splitCodeBlocks } from './code-blocks.js';
 
 const SETTINGS_KEY = 'orbit.settings.v1';
 const DB_NAME = 'orbit-local-chat';
@@ -17,8 +18,9 @@ const MODEL_SELECTION_KEY = 'orbit.modelSelection.v1';
 const SYSTEM_PROMPT =
   'Jawab secara lugas, relevan, dan sesuai bahasa serta format yang diminta pengguna. ' +
   'Jangan menolak hanya karena topiknya tidak biasa atau kontroversial; bantu secara langsung untuk permintaan yang dapat dijawab. ' +
-  'Hindari disclaimer dan penolakan yang tidak perlu. Jangan mengaku telah membuka tautan, membaca grup, atau memakai alat yang tidak tersedia. ' +
-  'Jika suatu sumber tidak dapat diakses dari percakapan ini, jelaskan keterbatasan spesifiknya dengan singkat dan minta pengguna menempelkan atau mengunggah isinya.';
+  'Hindari disclaimer dan penolakan yang tidak perlu. Tautan Telegram publik tidak otomatis berarti grup privat; jangan mengasumsikan butuh login sebelum mencoba kemampuan web yang memang tersedia. ' +
+  'Jangan mengaku telah membuka tautan, membaca grup, atau memakai alat yang tidak tersedia. Jika percakapan ini tidak memiliki browser/web retrieval atau sumbernya memang tidak dapat diakses, jelaskan batasan spesifik itu dengan singkat dan minta pengguna menempelkan atau mengunggah isi yang ingin dianalisis. ' +
+  'Untuk konfigurasi atau keluaran yang dimaksudkan sebagai file/perintah, gunakan fenced code block Markdown dengan label bahasa yang sesuai (mis. json, yaml, bash, powershell, python). Letakkan isi yang siap disalin di dalam blok kode dan pisahkan penjelasan di luar blok.';
 
 const elements = {
   conversationList: document.querySelector('#conversationList'),
@@ -239,7 +241,11 @@ function createMessageElement(message) {
   const content = document.createElement('div');
   content.className = 'message-content';
   if (typeof message.content === 'string') {
-    content.textContent = message.content;
+    if (message.role === 'assistant') {
+      renderAssistantContent(content, message);
+    } else {
+      content.textContent = message.content;
+    }
   } else if (Array.isArray(message.content)) {
     for (const part of message.content) {
       if (part.type === 'text') {
@@ -264,6 +270,98 @@ function createMessageElement(message) {
   }
   wrapper.append(avatar, body);
   return wrapper;
+}
+
+function renderAssistantContent(container, message) {
+  for (const part of splitCodeBlocks(message.content)) {
+    if (part.type === 'text') {
+      const text = document.createElement('div');
+      text.className = 'message-prose';
+      text.textContent = part.value;
+      container.append(text);
+      continue;
+    }
+
+    const block = document.createElement('section');
+    block.className = 'code-block';
+    const header = document.createElement('div');
+    header.className = 'code-block-header';
+    const language = document.createElement('span');
+    language.className = 'code-block-language';
+    language.textContent = part.language;
+    const actions = document.createElement('div');
+    actions.className = 'code-block-actions';
+    const code = document.createElement('pre');
+    code.className = 'code-block-content';
+    const codeText = document.createElement('code');
+    codeText.textContent = part.value;
+    code.append(codeText);
+
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'code-action';
+    copy.setAttribute('aria-label', `Salin blok ${part.language}`);
+    copy.title = 'Salin';
+    copy.textContent = '⧉';
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(part.value);
+        showToast('Blok kode disalin.');
+      } catch {
+        showToast('Tidak dapat menyalin otomatis. Pilih kode lalu salin secara manual.');
+      }
+    });
+
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'code-action';
+    edit.setAttribute('aria-label', `Edit blok ${part.language}`);
+    edit.title = 'Edit';
+    edit.textContent = '✎';
+    edit.addEventListener('click', () => {
+      const editor = document.createElement('textarea');
+      editor.className = 'code-editor';
+      editor.setAttribute('aria-label', `Edit kode ${part.language}`);
+      editor.spellcheck = false;
+      editor.value = part.value;
+      const editorActions = document.createElement('div');
+      editorActions.className = 'code-editor-actions';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'text-button';
+      cancel.textContent = 'Batal';
+      cancel.addEventListener('click', () => renderMessages());
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'primary-button';
+      save.textContent = 'Simpan edit';
+      save.addEventListener('click', async () => {
+        const conversation = conversations.find(item =>
+          item.messages.includes(message)
+        );
+        if (!conversation) {
+          showToast('Percakapan tidak ditemukan; perubahan tidak disimpan.');
+          return;
+        }
+        try {
+          message.content = replaceCodeBlock(message.content, part, editor.value);
+          conversation.updatedAt = Date.now();
+          await saveConversation(conversation);
+          renderMessages();
+          showToast('Edit kode disimpan di riwayat lokal.');
+        } catch (error) {
+          showToast(`Edit kode gagal disimpan: ${error.message}`);
+        }
+      });
+      editorActions.append(cancel, save);
+      block.replaceChildren(header, editor, editorActions);
+      editor.focus();
+    });
+    actions.append(copy, edit);
+    header.append(language, actions);
+    block.append(header, code);
+    container.append(block);
+  }
 }
 
 function showTyping() {

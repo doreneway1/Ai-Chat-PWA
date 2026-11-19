@@ -108,7 +108,7 @@
         <div class="provider-list" id="providerList"></div>
         <button class="text-button add-provider-button" id="addProvider" type="button">＋ Tambah koneksi provider</button>
         <p class="field-help">Model per baris: <code>ID model | fast,balanced,deep,default</code>. Level Auto memilih level lokal tanpa panggilan router tambahan.</p>
-        <p class="field-help warning">API key disimpan lokal tanpa enkripsi. Key, prompt, dan gambar yang dikirim melewati Cloudflare Worker milikmu lalu ke provider. Worker tidak menyimpannya.</p>
+        <p class="field-help warning">API key ada di localStorage; riwayat dan foto lampiran ada di IndexedDB browser—keduanya memakai penyimpanan perangkat dan tidak dienkripsi aplikasi. Hapus chat untuk menghapus lampirannya, atau hapus data situs di pengaturan browser untuk menghapus semua data lokal. Key, prompt, dan gambar yang dikirim melewati Worker milikmu lalu ke provider.</p>
         <div class="settings-error" id="settingsError" role="alert"></div>
         <p id="connectionStatus" class="connection-status" role="status" aria-live="polite">Test setiap provider sebelum menyimpan.</p>
         <div class="dialog-actions">

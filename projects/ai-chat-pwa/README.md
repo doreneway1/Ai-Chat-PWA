@@ -29,12 +29,19 @@ Auto memakai heuristik sederhana dan bukan router cerdas atau jaminan kualitas s
 
 Prompt sistem meminta jawaban lugas, menghindari penolakan yang tidak perlu, dan jujur jika tidak punya kemampuan membuka tautan. Prompt tidak menonaktifkan kebijakan provider/model. Aplikasi tidak memiliki browser web untuk membuka Telegram; tempel teks atau unggah ekspor yang memang boleh kamu bagikan.
 
+## Blok kode dan perintah
+
+Jika model mengembalikan fenced code block Markdown, misalnya ` ```yaml `, ` ```json `, ` ```bash `, atau ` ```powershell `, client menampilkannya dalam panel berlabel bahasa dengan tombol **Salin** dan **Edit**. Edit mengubah blok tersebut di jawaban dan menyimpan perubahan pada riwayat lokal. Tombol salin hanya menyalin teks; aplikasi tidak menjalankan perintah terminal.
+
 ## Lampiran dan riwayat
 
 - Maksimal 5 file per pesan, masing-masing maksimal 10 MB.
 - Teks/kode umum dibaca sebagai teks; PDF dibatasi 80 halaman; DOCX, XLSX, PPTX diekstrak di browser; gambar PNG, JPEG, dan WebP dikirim sebagai gambar. Total gambar per pesan maksimal 5 MB.
 - XLSX/PPTX/DOCX diproses di perangkat. Isi yang diekstrak, prompt, dan gambar dikirim ke Worker lalu ke provider saat chat dikirim. Dukungan gambar juga bergantung pada provider/model.
-- Riwayat dan lampiran tersimpan di IndexedDB lokal browser, sedangkan pengaturan termasuk API key tersimpan di localStorage tanpa enkripsi. Data tidak disinkronkan antarperangkat; menghapus data situs/browser dapat menghapusnya.
+- API key, Base URL, dan pengaturan provider tersimpan di `localStorage` browser.
+- Riwayat chat tersimpan di `IndexedDB` browser. Foto disimpan bersama pesan sebagai data URL/base64; file teks dan dokumen yang dilampirkan disimpan sebagai teks hasil ekstraksi. Artinya foto dan riwayat memang memakai ruang penyimpanan komputer/ponsel ini. Ukurannya bergantung pada panjang chat dan lampiran; data lokal browser juga tunduk pada kuota browser/perangkat.
+- Hapus chat dari daftar percakapan untuk menghapus pesannya beserta lampiran lokalnya. **Clear site data / Hapus data situs** di pengaturan browser menghapus seluruh riwayat serta pengaturan/key situs pada browser itu. Data tidak disinkronkan antarperangkat.
+- Penyimpanan browser tidak dienkripsi oleh aplikasi. Lindungi perangkat/profil browser dan jangan membagikan aksesnya. Saat chat dikirim, prompt, lampiran, dan API key diteruskan ke Worker dan provider yang dipilih; periksa aturan privasi kedua layanan.
 - Gaya respons dibuat lugas untuk permintaan aman. Aplikasi tidak dapat menjamin semua output tanpa batasan atau menonaktifkan kebijakan provider.
 
 ## Pengembangan lokal
