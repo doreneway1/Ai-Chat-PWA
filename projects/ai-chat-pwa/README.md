@@ -1,21 +1,36 @@
 # Orbit AI Chat PWA
 
-Client chat statis yang langsung mengirim permintaan dari browser ke **satu** API OpenAI-compatible. Tidak ada 9Router, VPS, proxy, atau backend aplikasi. Proyek ini terpisah dari bot WhatsApp.
+Client chat statis di GitHub Pages dengan relay Cloudflare Worker milikmu. Worker menangani CORS dan meneruskan request Chat Completions ke provider. Tidak perlu VPS, tetapi Worker adalah fungsi serverless yang memproses request.
 
-## Di mana memasukkan Base URL dan API key
+## Siapkan relay Cloudflare Worker
 
-1. Buka aplikasi dan tekan ikon **⚙** di kanan atas atau **Pengaturan API** di sidebar.
-2. Isi **Base URL API**, misalnya URL API provider yang berakhiran `/v1`.
-3. Isi **Model ID atau alias otomatis** persis seperti yang ditampilkan/didokumentasikan provider. Alias seperti `auto` tidak universal.
-4. Tempel **API key** dari layanan yang sama, lalu simpan.
+1. Masuk ke [Cloudflare Dashboard](https://dash.cloudflare.com/) atau buat akun.
+2. Buka **Workers & Pages → Create application → Create Worker**. Beri nama, misalnya `orbit-ai-proxy`, lalu deploy Worker contoh.
+3. Buka Worker yang baru dibuat dan pilih **Edit code**.
+4. Di repo `Ai-Chat-PWA`, buka file `projects/ai-chat-pwa/cloudflare/ai-chat-proxy.mjs`. Salin seluruh isinya, ganti kode contoh di editor Worker dengan kode tersebut, lalu pilih **Deploy**.
+5. Catat alamat Worker yang tampil, misalnya `https://orbit-ai-proxy.<subdomain>.workers.dev`.
 
-Key tidak diperlukan untuk mengubah atau menjalankan source code dan jangan dikirim ke chat atau commit ke Git. Key disimpan di localStorage browser tanpa enkripsi, jadi gunakan hanya pada perangkat dan origin yang dipercaya.
+Worker ini hanya menerima origin `https://doreneway1.github.io` dan host upstream `ai.ipeenk.com`, memakai HTTPS, Base URL berakhiran `/v1`, dan endpoint Chat Completions. Ia bukan proxy terbuka. Jika berpindah provider, host baru harus ditambahkan ke `ALLOWED_UPSTREAM_HOSTS` pada file Worker lalu Worker di-deploy ulang.
 
-## Cara kerja auto model
+## Hubungkan aplikasi dan uji
 
-Client mengirim `{ model: "<model-id-atau-alias>", messages: [...] }` ke endpoint itu. Jika daftar provider hanya menampilkan `deepseek-v4-pro`, gunakan ID itu; itu memanggil model tersebut, bukan memilih otomatis di antara banyak model. Alias otomatis hanya merutekan jika provider mendokumentasikan dukungannya, dan tidak bisa memilih model dari API provider lain. Untuk memakai banyak provider tanpa pilihan manual, dibutuhkan satu layanan/router yang memiliki akses ke semuanya.
+Di PWA, buka **⚙ Pengaturan API** dan isi:
 
-Layanan provider menentukan model tujuan, biaya, ketersediaan, dan kebijakan konten. Client tidak dapat menjamin semua output “uncensored” atau menonaktifkan kebijakan provider.
+- **URL Cloudflare Worker** — URL Worker `workers.dev` tanpa path.
+- **Base URL API** — `https://ai.ipeenk.com/v1`.
+- **Model ID atau alias otomatis** — ID persis dari provider, contohnya `deepseek-v4-pro`.
+- **API key** — key provider.
+
+Tekan **Test koneksi**. Tombol **Simpan & hubungkan** aktif hanya jika test berhasil. Test mengirim satu request pendek ke model dan dapat memakai sedikit token. Setelah disimpan, chat diteruskan melalui Worker.
+
+## Privasi dan keamanan
+
+- API key tetap disimpan di localStorage browser tanpa enkripsi. Gunakan hanya perangkat dan origin yang dipercaya.
+- Kode Worker tidak menulis API key atau prompt ke log dan tidak menyimpannya secara permanen; tetapi Cloudflare memproses request saat meneruskannya, dan provider juga menerima key/prompt.
+- Jangan gunakan URL Worker milik orang lain. Batasi origin dan host sesuai konstanta di source Worker.
+- Worker hanya mengizinkan origin GitHub Pages ini. Preview dari Codespaces/localhost tidak diizinkan secara default.
+- Request test memakai token provider. Isi pesan chat juga dikirim ke provider; periksa kebijakan retensi layanan tersebut.
+- Provider menentukan alias/model yang tersedia, biaya, dan batasan konten. Aplikasi tidak dapat menjamin semua output “uncensored”.
 
 ## Menjalankan lokal
 
@@ -24,15 +39,8 @@ cd projects/ai-chat-pwa
 python3 -m http.server 8000
 ```
 
-Buka `http://localhost:8000`. Mengirim chat langsung ke provider memerlukan koneksi internet dan CORS dari provider. Jika provider menolak request browser karena CORS, PWA tidak dapat mengakalinya tanpa proxy/backend; gunakan client desktop yang didukung provider atau endpoint yang mengizinkan CORS.
+Preview lokal tidak dapat memakai Worker yang dikonfigurasi untuk GitHub Pages karena origin-nya berbeda. Untuk mengizinkannya, tambahkan origin lokal yang tepat ke `ALLOWED_ORIGINS` di source Worker, lalu deploy ulang.
 
-## Hosting statis tanpa VPS
+## Hosting dan riwayat
 
-Workflow GitHub Pages disediakan di `.github/workflows/deploy-ai-chat-pages.yml`. Di GitHub, buka **Settings → Pages**, pilih **GitHub Actions** sebagai sumber deploy, lalu jalankan workflow atau push perubahan ke `main`. Setelah deploy, buka URL Pages dari PC/iPhone dan gunakan **Add to Home Screen** di iPhone. Ini hanya meng-host file statis; tidak ada key yang dimasukkan ke file atau dikirim ke workflow. Setiap browser/perangkat menyimpan key dan riwayatnya sendiri.
-
-## Data lokal
-
-- Riwayat disimpan di IndexedDB pada browser/perangkat yang digunakan dan tidak disinkronkan.
-- Base URL, alias, dan key disimpan di localStorage browser tanpa enkripsi.
-- Isi chat dikirim ke endpoint yang dikonfigurasi; periksa aturan privasi/retensi provider.
-- PWA shell dapat dibuka offline, tetapi chat membutuhkan internet.
+Workflow GitHub Actions menerbitkan PWA ke GitHub Pages setelah perubahan di-push ke branch `main`. Riwayat disimpan di IndexedDB pada browser/perangkat masing-masing dan tidak disinkronkan. Pengaturan termasuk API key disimpan terpisah di localStorage setiap origin/perangkat.

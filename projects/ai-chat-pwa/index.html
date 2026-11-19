@@ -50,7 +50,7 @@
             <div class="welcome-symbol" aria-hidden="true">✳</div>
             <p class="eyebrow">RUANG PIKIR PRIBADIMU</p>
             <h1>Mulai dari<br><span>apa saja.</span></h1>
-            <p class="welcome-copy">Tanyakan, buat, telusuri. Endpoint auto provider-mu yang memilih model.</p>
+            <p class="welcome-copy">Tanyakan, buat, telusuri. Model dipilih oleh endpoint auto yang kamu hubungkan.</p>
             <div class="suggestions" aria-label="Contoh pertanyaan">
               <button type="button" class="suggestion" data-prompt="Bantu saya menyusun ide untuk proyek baru">✦ <span>Bantu susun ide proyek</span></button>
               <button type="button" class="suggestion" data-prompt="Jelaskan konsep yang rumit dengan cara yang sederhana">⌘ <span>Jelaskan sesuatu yang rumit</span></button>
@@ -85,21 +85,28 @@
           </div>
           <button class="icon-button" id="closeSettings" type="button" aria-label="Tutup pengaturan">×</button>
         </div>
-        <p class="settings-intro">Client ini mengirim permintaan langsung ke satu endpoint provider/router yang mendukung alias model otomatis. Tidak ada VPS atau backend aplikasi.</p>
+        <p class="settings-intro">Hubungkan client ke relay Cloudflare Worker milikmu, lalu uji koneksi provider sebelum menyimpan pengaturan.</p>
+        <label for="proxyUrl">URL Cloudflare Worker</label>
+        <input id="proxyUrl" name="proxyUrl" type="url" inputmode="url" placeholder="https://nama-worker.username.workers.dev" autocomplete="url" required>
+        <p class="field-help">Worker meneruskan request ke provider dan menangani CORS. Jangan gunakan URL Worker milik orang lain.</p>
         <label for="apiBase">Base URL API</label>
-        <input id="apiBase" name="apiBase" type="url" inputmode="url" placeholder="https://api.provider.com/v1" autocomplete="url" required>
+        <input id="apiBase" name="apiBase" type="url" inputmode="url" placeholder="https://ai.ipeenk.com/v1" autocomplete="url" required>
         <label for="modelAlias">Model ID atau alias otomatis</label>
         <input id="modelAlias" name="modelAlias" type="text" placeholder="Contoh: deepseek-v4-pro" autocomplete="off" required>
-        <p class="field-help">Gunakan ID yang tampil pada daftar model provider. Gunakan alias auto hanya jika memang disediakan provider/router; alias itu tidak memilih model dari API provider lain.</p>
+        <p class="field-help">Gunakan ID yang tampil pada daftar model provider atau alias auto yang memang didukung endpoint tersebut.</p>
         <label for="apiKey">API key</label>
         <input id="apiKey" name="apiKey" type="password" placeholder="Tempel API key untuk endpoint ini" autocomplete="off" required>
-        <p class="field-help warning">Key disimpan lokal di browser ini tanpa enkripsi. Jangan gunakan perangkat bersama atau situs yang tidak dipercaya. Key hanya dikirim ke Base URL yang kamu atur.</p>
+        <p class="field-help warning">Key disimpan lokal tanpa enkripsi. Key dan prompt diteruskan melalui Cloudflare Worker milikmu ke provider; Worker tidak menyimpannya.</p>
         <div class="settings-error" id="settingsError" role="alert"></div>
+        <div class="connection-controls">
+          <button class="text-button" id="testConnection" type="button">Test koneksi</button>
+          <span id="connectionStatus" role="status" aria-live="polite">Tes koneksi sebelum menyimpan.</span>
+        </div>
         <div class="dialog-actions">
           <button class="text-button" id="cancelSettings" type="button">Batal</button>
-          <button class="primary-button" type="submit">Simpan pengaturan</button>
+          <button class="primary-button" id="saveSettings" type="submit" disabled>Simpan &amp; hubungkan</button>
         </div>
-        <p class="provider-note">Endpoint harus kompatibel dengan OpenAI Chat Completions dan mengizinkan request browser (CORS). Provider tetap menentukan model tujuan, biaya, ketersediaan, dan batasan konten.</p>
+        <p class="provider-note">Tes mengirim satu request chat pendek dan dapat memakai sedikit token. Endpoint harus kompatibel dengan OpenAI Chat Completions. Provider tetap menentukan model tujuan, biaya, ketersediaan, dan batasan konten.</p>
       </form>
     </dialog>
 

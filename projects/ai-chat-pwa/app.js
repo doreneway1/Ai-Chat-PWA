@@ -13,9 +13,13 @@ const elements = {
   settingsDialog: document.querySelector('#settingsDialog'),
   settingsForm: document.querySelector('#settingsForm'),
   settingsError: document.querySelector('#settingsError'),
+  proxyUrl: document.querySelector('#proxyUrl'),
   apiBase: document.querySelector('#apiBase'),
   modelAlias: document.querySelector('#modelAlias'),
   apiKey: document.querySelector('#apiKey'),
+  testConnection: document.querySelector('#testConnection'),
+  connectionStatus: document.querySelector('#connectionStatus'),
+  saveSettings: document.querySelector('#saveSettings'),
   routeLabel: document.querySelector('#routeLabel'),
   toast: document.querySelector('#toast'),
   sidebar: document.querySelector('#sidebar'),
@@ -28,23 +32,32 @@ let currentConversationId = null;
 let sending = false;
 let toastTimer;
 let settings = readSettings();
+let testedSettingsFingerprint = settings.tested ? fingerprint(settings) : '';
 
 function readSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     return {
+      proxyUrl: saved.proxyUrl || '',
       apiBase: saved.apiBase || 'https://ai.ipeenk.com/v1',
       modelAlias: saved.modelAlias || saved.autoModel || 'deepseek-v4-pro',
-      apiKey: saved.apiKey || ''
+      apiKey: saved.apiKey || '',
+      tested: saved.tested === true
     };
   } catch (error) {
     showToast(`Pengaturan lokal tidak dapat dibaca: ${error.message}`);
     return {
+      proxyUrl: '',
       apiBase: 'https://ai.ipeenk.com/v1',
       modelAlias: 'deepseek-v4-pro',
-      apiKey: ''
+      apiKey: '',
+      tested: false
     };
   }
+}
+
+function fingerprint(config) {
+  return JSON.stringify([config.proxyUrl, config.apiBase, config.modelAlias, config.apiKey]);
 }
 
 function openDatabase() {
@@ -221,29 +234,64 @@ function showTyping() {
 }
 
 function getSettingsFromForm() {
+  const proxyUrl = elements.proxyUrl.value.trim().replace(/\/+$/, '');
   const apiBase = elements.apiBase.value.trim().replace(/\/+$/, '');
   const modelAlias = elements.modelAlias.value.trim();
   const apiKey = elements.apiKey.value.trim();
-  if (!apiBase || !modelAlias || !apiKey) {
-    throw new Error('Base URL, alias model otomatis, dan API key harus diisi.');
+  if (!proxyUrl || !apiBase || !modelAlias || !apiKey) {
+    throw new Error('URL Worker, Base URL API, model ID/alias, dan API key harus diisi.');
   }
 
-  let url;
+  let worker;
   try {
-    url = new URL(apiBase);
+    worker = new URL(proxyUrl);
   } catch {
-    throw new Error('Base URL tidak valid.');
+    throw new Error('URL Cloudflare Worker tidak valid.');
   }
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Base URL harus memakai HTTP atau HTTPS.');
-  if (url.username || url.password) throw new Error('Jangan menaruh username/password di dalam Base URL.');
-  return { apiBase, modelAlias, apiKey };
+  if (worker.protocol !== 'https:' || worker.username || worker.password || worker.search || worker.hash || worker.pathname !== '/') {
+    throw new Error('URL Worker harus berupa alamat HTTPS utama, tanpa path, query, atau kredensial.');
+  }
+
+  let api;
+  try {
+    api = new URL(apiBase);
+  } catch {
+    throw new Error('Base URL API tidak valid.');
+  }
+  if (api.protocol !== 'https:' || api.username || api.password || api.search || api.hash) {
+    throw new Error('Base URL API harus HTTPS dan tidak boleh berisi kredensial, query, atau fragment.');
+  }
+  return { proxyUrl, apiBase, modelAlias, apiKey };
 }
 
 function updateSettingsForm() {
+  elements.proxyUrl.value = settings.proxyUrl;
   elements.apiBase.value = settings.apiBase;
   elements.modelAlias.value = settings.modelAlias;
   elements.apiKey.value = settings.apiKey;
   elements.routeLabel.textContent = settings.modelAlias ? `Model · ${settings.modelAlias}` : 'Model belum diatur';
+  updateConnectionStatus();
+}
+
+function updateConnectionStatus(message) {
+  if (message) {
+    elements.connectionStatus.textContent = message;
+    return;
+  }
+
+  let matchesLastTest = false;
+  try {
+    matchesLastTest = Boolean(
+      testedSettingsFingerprint &&
+      fingerprint(getSettingsFromForm()) === testedSettingsFingerprint
+    );
+  } catch {
+    matchesLastTest = false;
+  }
+  elements.saveSettings.disabled = !matchesLastTest;
+  elements.connectionStatus.textContent = matchesLastTest
+    ? 'Koneksi sudah diuji. Pengaturan siap disimpan.'
+    : 'Tes koneksi sebelum menyimpan.';
 }
 
 function openSettings() {
@@ -259,15 +307,85 @@ function showToast(message) {
   toastTimer = setTimeout(() => elements.toast.classList.remove('visible'), 4000);
 }
 
+async function readJsonResponse(response) {
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    if (response.ok) throw new Error('Relay mengembalikan respons yang bukan JSON.');
+  }
+
+  if (!response.ok) {
+    const error = payload?.error;
+    const detail = typeof error === 'string' ? error : error?.message;
+    throw new Error(detail
+      ? `HTTP ${response.status}: ${detail}`
+      : `HTTP ${response.status}. Periksa Worker, Base URL, API key, model, dan kuota.`);
+  }
+  return payload;
+}
+
+async function testConnection() {
+  elements.settingsError.textContent = '';
+  let config;
+  try {
+    config = getSettingsFromForm();
+  } catch (error) {
+    elements.settingsError.textContent = error.message;
+    return;
+  }
+
+  elements.testConnection.disabled = true;
+  elements.saveSettings.disabled = true;
+  updateConnectionStatus('Menguji Worker, API key, dan model...');
+  try {
+    const response = await fetch(`${config.proxyUrl}/api/test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify({ baseUrl: config.apiBase, model: config.modelAlias })
+    });
+    const payload = await readJsonResponse(response);
+    if (payload?.success !== true) throw new Error('Relay tidak mengonfirmasi koneksi berhasil.');
+
+    let currentFingerprint = '';
+    try {
+      currentFingerprint = fingerprint(getSettingsFromForm());
+    } catch {
+      currentFingerprint = '';
+    }
+    if (currentFingerprint !== fingerprint(config)) {
+      testedSettingsFingerprint = '';
+      updateConnectionStatus('Pengaturan berubah saat pengujian. Jalankan test lagi.');
+      return;
+    }
+
+    testedSettingsFingerprint = fingerprint(config);
+    elements.saveSettings.disabled = false;
+    updateConnectionStatus(`Berhasil terhubung${payload.model ? ` · ${payload.model}` : ''}. Kamu bisa menyimpan pengaturan.`);
+  } catch (error) {
+    testedSettingsFingerprint = '';
+    elements.saveSettings.disabled = true;
+    updateConnectionStatus(error instanceof TypeError
+      ? 'Worker tidak dapat dijangkau atau origin belum diizinkan. Periksa URL dan konfigurasi Worker.'
+      : `Tes gagal: ${error.message}`);
+  } finally {
+    elements.testConnection.disabled = false;
+  }
+}
+
 function closeSidebar() {
   elements.sidebar.classList.remove('open');
   elements.sidebarBackdrop.classList.remove('visible');
 }
 
 async function sendMessage(text) {
-  if (!settings.apiBase || !settings.modelAlias || !settings.apiKey) {
+  if (!settings.proxyUrl || !settings.apiBase || !settings.modelAlias || !settings.apiKey || !settings.tested) {
     openSettings();
-    showToast('Isi Base URL, alias model otomatis, dan API key terlebih dahulu.');
+    showToast('Lengkapi pengaturan, test koneksi, lalu simpan sebelum mengirim chat.');
     return;
   }
   if (sending) return;
@@ -293,26 +411,24 @@ async function sendMessage(text) {
     renderMessages();
     showTyping();
 
-    const response = await fetch(`${settings.apiBase}/chat/completions`, {
+    const response = await fetch(`${settings.proxyUrl}/api/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${settings.apiKey}`
       },
       body: JSON.stringify({
+        baseUrl: settings.apiBase,
         model: settings.modelAlias,
         messages: conversation.messages
           .filter(message => !message.error)
           .slice(-MAX_CONTEXT_MESSAGES)
           .map(({ role, content }) => ({ role, content })),
-        temperature: 0.7
+          temperature: 0.7,
+          max_tokens: 500
       })
     });
-    if (!response.ok) {
-      throw new Error(`API membalas dengan status HTTP ${response.status}. Periksa endpoint, key, alias model, dan kuota.`);
-    }
-
-    const payload = await response.json();
+    const payload = await readJsonResponse(response);
     const reply = payload?.choices?.[0]?.message?.content;
     if (typeof reply !== 'string' || !reply.trim()) {
       throw new Error('API tidak mengembalikan teks jawaban yang valid.');
@@ -331,7 +447,7 @@ async function sendMessage(text) {
     conversation.messages.push({
       role: 'assistant',
       content: error instanceof TypeError
-        ? 'Browser gagal membaca koneksi ke API. Periksa CORS/OPTIONS pada provider, Base URL, HTTPS/TLS, dan koneksi jaringan. Jika CORS diblokir provider, client web tidak bisa melewatinya sendiri.'
+        ? 'Browser gagal menjangkau Cloudflare Worker. Pastikan Worker aktif, URL benar, dan origin GitHub Pages diizinkan oleh Worker.'
         : `Gagal menghubungi API: ${error.message}`,
       error: true,
       createdAt: Date.now()
@@ -372,8 +488,15 @@ elements.messageInput.addEventListener('input', () => {
 document.querySelector('#newChat').addEventListener('click', createConversation);
 document.querySelector('#openSettings').addEventListener('click', openSettings);
 document.querySelector('#openSettingsTop').addEventListener('click', openSettings);
+elements.testConnection.addEventListener('click', testConnection);
 document.querySelector('#closeSettings').addEventListener('click', () => elements.settingsDialog.close());
 document.querySelector('#cancelSettings').addEventListener('click', () => elements.settingsDialog.close());
+[
+  elements.proxyUrl,
+  elements.apiBase,
+  elements.modelAlias,
+  elements.apiKey
+].forEach(input => input.addEventListener('input', () => updateConnectionStatus()));
 document.querySelector('#openSidebar').addEventListener('click', () => {
   elements.sidebar.classList.add('open');
   elements.sidebarBackdrop.classList.add('visible');
@@ -394,6 +517,10 @@ elements.settingsForm.addEventListener('submit', event => {
   elements.settingsError.textContent = '';
   try {
     const updatedSettings = getSettingsFromForm();
+    if (fingerprint(updatedSettings) !== testedSettingsFingerprint) {
+      throw new Error('Test koneksi dengan pengaturan terbaru sebelum menyimpan.');
+    }
+    updatedSettings.tested = true;
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(updatedSettings));
     settings = updatedSettings;
     updateSettingsForm();
@@ -420,7 +547,9 @@ async function initialize() {
   } catch (error) {
     showToast(`Riwayat lokal tidak tersedia: ${error.message}`);
   }
-  if (!settings.apiBase || !settings.apiKey || !settings.modelAlias) openSettings();
+  if (!settings.proxyUrl || !settings.apiBase || !settings.apiKey || !settings.modelAlias || !settings.tested) {
+    openSettings();
+  }
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(error => {
       showToast(`Mode offline tidak aktif: ${error.message}`);
