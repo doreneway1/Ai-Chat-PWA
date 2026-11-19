@@ -1,5 +1,5 @@
 const ALLOWED_ORIGINS = new Set(['https://doreneway1.github.io']);
-const ALLOWED_UPSTREAM_HOSTS = new Set(['ai.ipeenk.com']);
+const ALLOWED_UPSTREAM_HOSTS = new Set(['ai.ipeenk.com', 'kunciai.id']);
 const MAX_BODY_BYTES = 512_000;
 const MAX_MESSAGES = 40;
 const MAX_MESSAGE_LENGTH = 100_000;

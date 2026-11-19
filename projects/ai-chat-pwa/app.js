@@ -39,8 +39,8 @@ function readSettings() {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
     return {
       proxyUrl: saved.proxyUrl || '',
-      apiBase: saved.apiBase || 'https://ai.ipeenk.com/v1',
-      modelAlias: saved.modelAlias || saved.autoModel || 'deepseek-v4-pro',
+      apiBase: saved.apiBase || 'https://kunciai.id/v1',
+      modelAlias: saved.modelAlias || saved.autoModel || 'kunciai/deepseek-v4.1-flash',
       apiKey: saved.apiKey || '',
       tested: saved.tested === true
     };
@@ -48,8 +48,8 @@ function readSettings() {
     showToast(`Pengaturan lokal tidak dapat dibaca: ${error.message}`);
     return {
       proxyUrl: '',
-      apiBase: 'https://ai.ipeenk.com/v1',
-      modelAlias: 'deepseek-v4-pro',
+      apiBase: 'https://kunciai.id/v1',
+      modelAlias: 'kunciai/deepseek-v4.1-flash',
       apiKey: '',
       tested: false
     };

@@ -66,6 +66,22 @@ test('tests provider credentials and model with a short chat request', async () 
   assert.equal(JSON.parse(sentInit.body).max_tokens, 8);
 });
 
+test('allows the configured Kunciai API host', async () => {
+  const response = await handleRequest(makeRequest('/api/test', {
+    headers: { Authorization: authorization },
+    body: { baseUrl: 'https://kunciai.id/v1', model: 'kunciai/deepseek-v4.1-flash' }
+  }), async url => {
+    assert.equal(url.toString(), 'https://kunciai.id/v1/chat/completions');
+    return Response.json({
+      model: 'kunciai/deepseek-v4.1-flash',
+      choices: [{ message: { content: 'OK' } }]
+    });
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).model, 'kunciai/deepseek-v4.1-flash');
+});
+
 test('does not pass the connection test when the provider returns no answer', async () => {
   const response = await handleRequest(makeRequest('/api/test', {
     headers: { Authorization: authorization },

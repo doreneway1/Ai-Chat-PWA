@@ -10,15 +10,15 @@ Client chat statis di GitHub Pages dengan relay Cloudflare Worker milikmu. Worke
 4. Di repo `Ai-Chat-PWA`, buka file `projects/ai-chat-pwa/cloudflare/ai-chat-proxy.mjs`. Salin seluruh isinya, ganti kode contoh di editor Worker dengan kode tersebut, lalu pilih **Deploy**.
 5. Catat alamat Worker yang tampil, misalnya `https://orbit-ai-proxy.<subdomain>.workers.dev`.
 
-Worker ini hanya menerima origin `https://doreneway1.github.io` dan host upstream `ai.ipeenk.com`, memakai HTTPS, Base URL berakhiran `/v1`, dan endpoint Chat Completions. Ia bukan proxy terbuka. Jika berpindah provider, host baru harus ditambahkan ke `ALLOWED_UPSTREAM_HOSTS` pada file Worker lalu Worker di-deploy ulang.
+Worker ini hanya menerima origin `https://doreneway1.github.io` dan host upstream `ai.ipeenk.com` serta `kunciai.id`, memakai HTTPS, Base URL berakhiran `/v1`, dan endpoint Chat Completions. Ia bukan proxy terbuka. Jika berpindah provider, host baru harus ditambahkan ke `ALLOWED_UPSTREAM_HOSTS` pada file Worker lalu Worker di-deploy ulang.
 
 ## Hubungkan aplikasi dan uji
 
 Di PWA, buka **⚙ Pengaturan API** dan isi:
 
 - **URL Cloudflare Worker** — URL Worker `workers.dev` tanpa path.
-- **Base URL API** — `https://ai.ipeenk.com/v1`.
-- **Model ID atau alias otomatis** — ID persis dari provider, contohnya `deepseek-v4-pro`.
+- **Base URL API** — URL provider yang host-nya diizinkan Worker, misalnya `https://kunciai.id/v1`.
+- **Model ID atau alias otomatis** — ID persis dari provider, contohnya `kunciai/deepseek-v4.1-flash`.
 - **API key** — key provider.
 
 Tekan **Test koneksi**. Tombol **Simpan & hubungkan** aktif hanya jika test berhasil. Test mengirim satu request pendek ke model dan dapat memakai sedikit token. Setelah disimpan, chat diteruskan melalui Worker.
