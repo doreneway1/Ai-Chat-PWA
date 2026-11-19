@@ -13,10 +13,12 @@ const MAX_EXTRACTED_TEXT = 100_000;
 const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
 const MAX_MODELS_PER_PROVIDER = 100;
 const MODEL_TIERS = new Set(['fast', 'balanced', 'deep', 'default']);
+const MODEL_SELECTION_KEY = 'orbit.modelSelection.v1';
 const SYSTEM_PROMPT =
   'Jawab secara lugas, relevan, dan sesuai bahasa serta format yang diminta pengguna. ' +
-  'Ikuti instruksi pengguna untuk permintaan yang aman, hindari disclaimer atau penolakan yang tidak perlu, ' +
-  'dan jelaskan singkat bila ada bagian yang tidak dapat dipenuhi.';
+  'Jangan menolak hanya karena topiknya tidak biasa atau kontroversial; bantu secara langsung untuk permintaan yang dapat dijawab. ' +
+  'Hindari disclaimer dan penolakan yang tidak perlu. Jangan mengaku telah membuka tautan, membaca grup, atau memakai alat yang tidak tersedia. ' +
+  'Jika suatu sumber tidak dapat diakses dari percakapan ini, jelaskan keterbatasan spesifiknya dengan singkat dan minta pengguna menempelkan atau mengunggah isinya.';
 
 const elements = {
   conversationList: document.querySelector('#conversationList'),
@@ -38,6 +40,7 @@ const elements = {
   attachButton: document.querySelector('#attachButton'),
   attachmentList: document.querySelector('#attachmentList'),
   aiLevel: document.querySelector('#aiLevel'),
+  modelSelect: document.querySelector('#modelSelect'),
   routeLabel: document.querySelector('#routeLabel'),
   toast: document.querySelector('#toast'),
   sidebar: document.querySelector('#sidebar'),
@@ -51,11 +54,20 @@ let sending = false;
 let toastTimer;
 let selectedFiles = [];
 let settings = readSettings();
+let modelSelection = readModelSelection();
 let providerTestFingerprints = new Map(
   settings.providers
     .filter(provider => provider.tested)
     .map(provider => [provider.id, providerFingerprint(provider, settings.proxyUrl)])
 );
+
+function readModelSelection() {
+  try {
+    return localStorage.getItem(MODEL_SELECTION_KEY) || 'auto';
+  } catch {
+    return 'auto';
+  }
+}
 
 function readSettings() {
   try {
@@ -827,10 +839,31 @@ async function testProvider(card, button) {
 function updateSettingsForm() {
   elements.proxyUrl.value = settings.proxyUrl;
   renderProviderCards(settings.providers);
-  elements.routeLabel.textContent = settings.providers[0]?.models?.[0]?.id
-    ? `Model · ${settings.providers[0].models[0].id}`
-    : 'Pilih tingkat AI';
+  renderModelOptions();
   elements.aiLevel.value = localStorage.getItem('orbit.aiLevel.v1') || 'auto';
+}
+
+function renderModelOptions() {
+  const options = [new Option('Auto · pilih sesuai tugas', 'auto')];
+  for (const provider of settings.providers.filter(item => item.tested)) {
+    for (const model of provider.models || []) {
+      options.push(new Option(`${provider.name} · ${model.id}`, JSON.stringify({
+        providerId: provider.id,
+        modelId: model.id
+      })));
+    }
+  }
+  elements.modelSelect.replaceChildren(...options);
+  if (modelSelection !== 'auto' && options.some(option => option.value === modelSelection)) {
+    elements.modelSelect.value = modelSelection;
+  } else {
+    modelSelection = 'auto';
+    elements.modelSelect.value = 'auto';
+    localStorage.setItem(MODEL_SELECTION_KEY, 'auto');
+  }
+  elements.routeLabel.textContent = settings.providers.some(provider => provider.tested)
+    ? 'Pilih model di sini'
+    : 'Belum terhubung';
 }
 
 function openSettings() {
@@ -909,6 +942,19 @@ function apiMessages(conversation) {
   return [systemMessage, ...recentMessages.reverse()];
 }
 
+function parseModelSelection(value) {
+  if (!value || value === 'auto') return null;
+  try {
+    const selection = JSON.parse(value);
+    if (typeof selection.providerId === 'string' && typeof selection.modelId === 'string') {
+      return selection;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 async function sendMessage(text) {
   if (!settings.proxyUrl || !settings.providers.length) {
     openSettings();
@@ -924,7 +970,8 @@ async function sendMessage(text) {
     route = chooseModel(
       settings.providers.filter(provider => provider.tested),
       text || 'Analisis lampiran',
-      elements.aiLevel.value
+      elements.aiLevel.value,
+      parseModelSelection(modelSelection)
     );
   } catch (error) {
     showToast(error.message);
@@ -1066,6 +1113,13 @@ elements.addProvider.addEventListener('click', () => {
 elements.proxyUrl.addEventListener('input', updateProviderSaveState);
 elements.aiLevel.addEventListener('change', () => {
   localStorage.setItem('orbit.aiLevel.v1', elements.aiLevel.value);
+});
+elements.modelSelect.addEventListener('change', () => {
+  modelSelection = elements.modelSelect.value;
+  localStorage.setItem(MODEL_SELECTION_KEY, modelSelection);
+  elements.routeLabel.textContent = modelSelection === 'auto'
+    ? 'Auto memilih model sesuai tugas'
+    : 'Model manual dipilih';
 });
 document.querySelector('#closeSettings').addEventListener('click', () => elements.settingsDialog.close());
 document.querySelector('#cancelSettings').addEventListener('click', () => elements.settingsDialog.close());

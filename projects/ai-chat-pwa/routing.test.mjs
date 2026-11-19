@@ -21,6 +21,30 @@ test('chooses the first configured model tagged for the requested tier', () => {
   assert.equal(chooseModel(providers, 'audit', 'deep').model.id, 'model-b');
 });
 
+test('uses the exact provider and model selected manually', () => {
+  const providers = [
+    { id: 'one', name: 'One', models: [{ id: 'shared-model', tiers: ['balanced'] }] },
+    { id: 'two', name: 'Two', models: [{ id: 'shared-model', tiers: ['deep'] }] }
+  ];
+  const result = chooseModel(providers, 'quick question', 'auto', {
+    providerId: 'two',
+    modelId: 'shared-model'
+  });
+  assert.equal(result.provider.name, 'Two');
+  assert.equal(result.model.id, 'shared-model');
+  assert.equal(result.tier, 'manual');
+});
+
+test('reports when a saved manual selection is no longer configured', () => {
+  assert.throws(
+    () => chooseModel([{ id: 'one', models: [{ id: 'available' }] }], 'question', 'auto', {
+      providerId: 'one',
+      modelId: 'removed'
+    }),
+    /Model yang dipilih tidak lagi tersedia/
+  );
+});
+
 test('uses default or balanced model before falling back to the first model', () => {
   const providers = [{
     models: [

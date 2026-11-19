@@ -9,13 +9,20 @@ export function inferTier(text, selectedTier = 'auto') {
   return 'balanced';
 }
 
-export function chooseModel(providers, text, selectedTier = 'auto') {
+export function chooseModel(providers, text, selectedTier = 'auto', selectedModel = null) {
   const candidates = providers.flatMap(provider =>
     (Array.isArray(provider.models) ? provider.models : [])
       .filter(model => typeof model.id === 'string' && model.id.trim())
       .map(model => ({ provider, model }))
   );
   if (!candidates.length) throw new Error('Belum ada model yang dapat dipakai. Periksa pengaturan provider.');
+  if (selectedModel) {
+    const manual = candidates.find(({ provider, model }) =>
+      provider.id === selectedModel.providerId && model.id === selectedModel.modelId
+    );
+    if (!manual) throw new Error('Model yang dipilih tidak lagi tersedia. Pilih Auto atau perbarui pengaturan provider.');
+    return { ...manual, tier: 'manual' };
+  }
   const tier = inferTier(text, selectedTier);
   const selected = candidates.find(({ model }) => model.tiers?.includes(tier)) ||
     candidates.find(({ model }) => model.tiers?.includes('default')) ||

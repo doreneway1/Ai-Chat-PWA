@@ -19,7 +19,15 @@ Buka aplikasi lalu pilih **⚙ Pengaturan API**:
 - **Muat model** mengambil daftar dari endpoint `/v1/models` provider. Jika tidak tersedia, isi manual, satu per baris: `ID model | fast,balanced,deep,default`.
 - Tekan **Test koneksi** untuk tiap provider. Test menggunakan model pertama di daftar dan dapat memakai sedikit token. Tombol simpan aktif setelah semua koneksi lulus test.
 
-Tingkat **Auto**, **Cepat**, **Seimbang**, dan **Mendalam** memilih model lokal dari tag yang kamu berikan pada daftar model. Auto memakai heuristik sederhana di perangkat—tidak mengirim prompt ke router tambahan. Jika tidak ada tag yang cocok, aplikasi mencoba model `default`, lalu `balanced`, lalu model pertama. Pemilihan ini hanya berjalan di antara model yang kamu konfigurasi; bukan layanan perutean lintas provider.
+## Memilih model saat chat
+
+Dropdown model ada di bar atas chat, di samping titik hijau. **Auto · pilih sesuai tugas** memakai heuristik lokal; pilihan **Provider · model ID** mengunci model tersebut untuk pesan berikutnya. Pilihan tersimpan di browser perangkat ini.
+
+Semua model dari provider yang sudah diuji muncul di dropdown. Tambahkan model melalui **Pengaturan API → Muat model**, lalu test koneksi dan simpan. Tingkat **Auto**, **Cepat**, **Seimbang**, dan **Mendalam** memilih model lokal berdasarkan tag pada daftar model: `model-id | fast`, `model-id | balanced`, `model-id | deep`, atau `model-id | default`. Model yang diimpor otomatis bertag `balanced`; tanpa tag kemampuan yang benar, Auto dapat memilih model pertama yang cocok.
+
+Auto memakai heuristik sederhana dan bukan router cerdas atau jaminan kualitas setara Venice. Pemilihan hanya mencakup model yang dikonfigurasi.
+
+Prompt sistem meminta jawaban lugas, menghindari penolakan yang tidak perlu, dan jujur jika tidak punya kemampuan membuka tautan. Prompt tidak menonaktifkan kebijakan provider/model. Aplikasi tidak memiliki browser web untuk membuka Telegram; tempel teks atau unggah ekspor yang memang boleh kamu bagikan.
 
 ## Lampiran dan riwayat
 
