@@ -5,6 +5,11 @@ const MAX_MESSAGES = 40;
 const MAX_MESSAGE_LENGTH = 100_000;
 const MAX_IMAGE_DATA_LENGTH = 7_000_000;
 const MAX_MODEL_RESPONSE_BYTES = 1_000_000;
+const MAX_SCRAPE_BYTES = 2_000_000;
+const MAX_SCRAPE_TEXT_LENGTH = 20_000;
+const MAX_SCRAPE_REDIRECTS = 3;
+const SCRAPE_TIMEOUT_MS = 10_000;
+const SCRAPE_CONTENT_TYPES = new Set(['text/html', 'application/xhtml+xml', 'text/plain']);
 
 function corsHeaders(origin) {
   const headers = new Headers({
@@ -130,6 +135,213 @@ function validateMessages(value) {
   });
 }
 
+function scrapeError(message, status) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function parseIpv4(hostname) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (!match) return null;
+  const parts = match.slice(1).map(Number);
+  return parts.every(part => part <= 255) ? parts : null;
+}
+
+function isPrivateOrReservedIpv4([a, b]) {
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 192 && b === 0) ||
+    (a === 198 && (b === 18 || b === 51)) ||
+    (a === 203 && b === 0) ||
+    a >= 224
+  );
+}
+
+function isBlockedScrapeHostname(rawHostname) {
+  const hostname = rawHostname.toLowerCase().replace(/\.$/, '');
+  if (!hostname || hostname === 'localhost') return true;
+  if (hostname.includes(':')) return true; // Tolak literal IPv6; cakupan privatnya luas dan jarang dipakai untuk halaman publik.
+  if (
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.lan') ||
+    hostname.endsWith('.intranet') ||
+    hostname.endsWith('.home.arpa')
+  ) return true;
+  const ipv4 = parseIpv4(hostname);
+  if (ipv4) return isPrivateOrReservedIpv4(ipv4);
+  // Nama host satu label menyerupai host intranet; situs publik selalu memakai domain bertitik.
+  // Catatan batasan: Worker tidak dapat memeriksa hasil DNS, jadi nama publik yang
+  // diarahkan ke IP privat oleh pemilik DNS-nya tidak dapat dideteksi di lapisan ini.
+  return !hostname.includes('.');
+}
+
+export function validateScrapeUrl(value) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 2048) {
+    throw scrapeError('URL halaman tidak valid.', 400);
+  }
+  let url;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw scrapeError('URL halaman tidak valid.', 400);
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw scrapeError('URL halaman harus memakai HTTP atau HTTPS.', 400);
+  }
+  if (url.username || url.password) {
+    throw scrapeError('URL halaman tidak boleh memuat kredensial.', 400);
+  }
+  if (url.port && url.port !== (url.protocol === 'https:' ? '443' : '80')) {
+    throw scrapeError('URL halaman harus memakai port standar.', 400);
+  }
+  if (isBlockedScrapeHostname(url.hostname)) {
+    throw scrapeError('URL menuju jaringan privat atau lokal tidak diizinkan.', 400);
+  }
+  return url;
+}
+
+function decodeHtmlEntities(text) {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
+
+function readMetaContent(html, wantedKeys) {
+  const metaTagPattern = /<meta\b[^>]*>/gi;
+  let tag;
+  while ((tag = metaTagPattern.exec(html)) !== null) {
+    const attrs = {};
+    const attrPattern = /([\w:-]+)\s*=\s*("([^"]*)"|'([^']*)')/g;
+    let attr;
+    while ((attr = attrPattern.exec(tag[0])) !== null) {
+      attrs[attr[1].toLowerCase()] = attr[3] ?? attr[4] ?? '';
+    }
+    const key = (attrs.property || attrs.name || '').toLowerCase();
+    if (wantedKeys.includes(key) && attrs.content) {
+      return decodeHtmlEntities(attrs.content).trim();
+    }
+  }
+  return '';
+}
+
+function normalizeExtractedText(text) {
+  return text
+    .split('\n')
+    .map(line => line.replace(/[ \t]+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function extractPageContent(html, contentType = 'text/html') {
+  if (contentType === 'text/plain') {
+    return { title: '', description: '', text: normalizeExtractedText(html) };
+  }
+  const title =
+    readMetaContent(html, ['og:title', 'twitter:title']) ||
+    decodeHtmlEntities((/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] || '').replace(/<[^>]+>/g, '')).trim();
+  const description = readMetaContent(html, ['description', 'og:description', 'twitter:description']);
+
+  const mainMatch =
+    /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(html) ||
+    /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(html) ||
+    /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+  let fragment = mainMatch ? mainMatch[1] : html;
+  fragment = fragment
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(script|style|noscript|template|iframe|svg|form|nav|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|section|article|main|li|tr|h[1-6]|blockquote|pre|table)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ');
+  const text = normalizeExtractedText(decodeHtmlEntities(fragment));
+  return { title, description, text: text || description };
+}
+
+async function scrapeUrl(value, fetchImpl) {
+  const target = validateScrapeUrl(value);
+  let currentUrl = target;
+  for (let hop = 0; hop <= MAX_SCRAPE_REDIRECTS; hop += 1) {
+    let response;
+    try {
+      response = await fetchImpl(currentUrl, {
+        method: 'GET',
+        headers: {
+          Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9',
+          'User-Agent': 'dorenewAI-LinkReader/1.0'
+        },
+        redirect: 'manual',
+        signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? AbortSignal.timeout(SCRAPE_TIMEOUT_MS)
+          : undefined
+      });
+    } catch {
+      throw scrapeError('Worker tidak dapat menjangkau halaman tersebut.', 502);
+    }
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('Location');
+      try { await response.body?.cancel(); } catch { /* abaikan */ }
+      if (!location) {
+        throw scrapeError('Halaman mengalihkan request tanpa tujuan yang jelas.', 502);
+      }
+      if (hop === MAX_SCRAPE_REDIRECTS) {
+        throw scrapeError('Halaman terlalu banyak mengalihkan request.', 502);
+      }
+      let next;
+      try {
+        next = new URL(location, currentUrl);
+      } catch {
+        throw scrapeError('Tujuan pengalihan halaman tidak valid.', 502);
+      }
+      currentUrl = validateScrapeUrl(next.toString());
+      continue;
+    }
+
+    if (!response.ok) {
+      throw scrapeError(`Situs membalas HTTP ${response.status}; halaman tidak dapat dibaca.`, 502);
+    }
+
+    const contentType = (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+    if (!SCRAPE_CONTENT_TYPES.has(contentType)) {
+      throw scrapeError('Isi tautan bukan halaman HTML atau teks yang dapat dibaca.', 415);
+    }
+
+    const rawBody = await readLimitedBody(response, MAX_SCRAPE_BYTES);
+    if (rawBody === null) {
+      throw scrapeError('Halaman terlalu besar untuk dibaca.', 413);
+    }
+
+    const { title, description, text } = extractPageContent(rawBody, contentType);
+    if (!text && !description) {
+      throw scrapeError('Halaman tidak memuat teks yang dapat dibaca; mungkin kontennya dimuat dengan JavaScript atau memerlukan login.', 422);
+    }
+    const truncated = text.length > MAX_SCRAPE_TEXT_LENGTH;
+    return {
+      title,
+      description,
+      url: target.toString(),
+      finalUrl: currentUrl.toString(),
+      text: truncated ? text.slice(0, MAX_SCRAPE_TEXT_LENGTH) : text,
+      truncated,
+      fetchedAt: Date.now()
+    };
+  }
+  throw scrapeError('Halaman terlalu banyak mengalihkan request.', 502);
+}
+
 function errorMessage(error) {
   return error instanceof Error ? error.message : 'Request tidak valid.';
 }
@@ -140,7 +352,8 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
   const headers = corsHeaders(origin);
   const isApiRoute = requestUrl.pathname === '/api/test' ||
     requestUrl.pathname === '/api/chat/completions' ||
-    requestUrl.pathname === '/api/models';
+    requestUrl.pathname === '/api/models' ||
+    requestUrl.pathname === '/api/scrape';
 
   if (!ALLOWED_ORIGINS.has(origin)) {
     return jsonResponse({ error: 'Origin aplikasi tidak diizinkan.' }, 403, headers);
@@ -174,6 +387,16 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
     body = JSON.parse(text);
   } catch {
     return jsonResponse({ error: 'Body harus berupa JSON yang valid.' }, 400, headers);
+  }
+
+  if (requestUrl.pathname === '/api/scrape') {
+    try {
+      const result = await scrapeUrl(body?.url, fetchImpl);
+      return jsonResponse(result, 200, headers);
+    } catch (error) {
+      const status = Number.isInteger(error?.status) ? error.status : 400;
+      return jsonResponse({ error: errorMessage(error) }, status, headers);
+    }
   }
 
   let upstreamBase;

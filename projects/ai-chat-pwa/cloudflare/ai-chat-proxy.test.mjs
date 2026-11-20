@@ -143,6 +143,126 @@ test('limits oversized provider model-list responses', async () => {
   assert.match((await response.json()).error, /terlalu besar/i);
 });
 
+const scrapeHtml = `<!doctype html>
+<html><head>
+<title>Judul Halaman</title>
+<meta name="description" content="Deskripsi halaman contoh.">
+</head><body>
+<nav>Menu navigasi</nav>
+<main><h1>Halo Dunia</h1><p>Isi utama halaman &amp; contoh teks.</p><script>var rahasia = 1;</script></main>
+<footer>Kaki halaman</footer>
+</body></html>`;
+
+function htmlResponse(html, init = {}) {
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    ...init
+  });
+}
+
+test('scrapes a public page into title, description, and clean text', async () => {
+  let sentUrl;
+  const response = await handleRequest(makeRequest('/api/scrape', {
+    headers: { Authorization: authorization },
+    body: { url: 'https://example.com/artikel' }
+  }), async url => {
+    sentUrl = url.toString();
+    return htmlResponse(scrapeHtml);
+  });
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(sentUrl, 'https://example.com/artikel');
+  assert.equal(payload.title, 'Judul Halaman');
+  assert.equal(payload.description, 'Deskripsi halaman contoh.');
+  assert.equal(payload.finalUrl, 'https://example.com/artikel');
+  assert.match(payload.text, /Halo Dunia/);
+  assert.match(payload.text, /Isi utama halaman & contoh teks\./);
+  assert.doesNotMatch(payload.text, /rahasia|Menu navigasi|Kaki halaman/);
+  assert.equal(payload.truncated, false);
+});
+
+test('rejects scrape targets on private or local networks', async () => {
+  for (const url of [
+    'http://127.0.0.1/admin',
+    'http://localhost:8080/',
+    'https://192.168.1.10/router',
+    'https://169.254.169.254/latest/meta-data',
+    'https://intranet/secret',
+    'ftp://example.com/file'
+  ]) {
+    const response = await handleRequest(makeRequest('/api/scrape', {
+      headers: { Authorization: authorization },
+      body: { url }
+    }), async () => {
+      throw new Error('Blocked targets must not be fetched');
+    });
+    assert.equal(response.status, 400, url);
+  }
+});
+
+test('revalidates redirect targets and refuses private destinations', async () => {
+  const response = await handleRequest(makeRequest('/api/scrape', {
+    headers: { Authorization: authorization },
+    body: { url: 'https://example.com/mulai' }
+  }), async () => new Response(null, {
+    status: 302,
+    headers: { Location: 'http://10.0.0.5/internal' }
+  }));
+
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /privat atau lokal/i);
+});
+
+test('follows a public redirect and reports the final URL', async () => {
+  const seen = [];
+  const response = await handleRequest(makeRequest('/api/scrape', {
+    headers: { Authorization: authorization },
+    body: { url: 'https://example.com/lama' }
+  }), async url => {
+    seen.push(url.toString());
+    if (seen.length === 1) {
+      return new Response(null, { status: 301, headers: { Location: '/baru' } });
+    }
+    return htmlResponse(scrapeHtml);
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(seen, ['https://example.com/lama', 'https://example.com/baru']);
+  assert.equal((await response.json()).finalUrl, 'https://example.com/baru');
+});
+
+test('rejects non-text scrape content and empty extractions', async () => {
+  const binary = await handleRequest(makeRequest('/api/scrape', {
+    headers: { Authorization: authorization },
+    body: { url: 'https://example.com/gambar.png' }
+  }), async () => new Response(new Uint8Array([1, 2, 3]), {
+    headers: { 'Content-Type': 'image/png' }
+  }));
+  assert.equal(binary.status, 415);
+
+  const empty = await handleRequest(makeRequest('/api/scrape', {
+    headers: { Authorization: authorization },
+    body: { url: 'https://example.com/spa' }
+  }), async () => htmlResponse('<html><head></head><body><div id="root"></div></body></html>'));
+  assert.equal(empty.status, 422);
+  assert.match((await empty.json()).error, /tidak memuat teks/i);
+});
+
+test('truncates very long scraped text', async () => {
+  const longHtml = `<html><head><title>Panjang</title></head><body><main><p>${'kata '.repeat(6000)}</p></main></body></html>`;
+  const response = await handleRequest(makeRequest('/api/scrape', {
+    headers: { Authorization: authorization },
+    body: { url: 'https://example.com/panjang' }
+  }), async () => htmlResponse(longHtml));
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.text.length, 20_000);
+  assert.equal(payload.truncated, true);
+});
+
 test('forwards supported image content and rejects non-image data URLs', async () => {
   const image = 'data:image/png;base64,iVBORw0KGgo=';
   const forwarded = await handleRequest(makeRequest('/api/chat/completions', {
