@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dorenewai-shell-v12';
+const CACHE_NAME = 'dorenewai-shell-v11';
 const APP_SHELL = [
   './',
   './index.html',

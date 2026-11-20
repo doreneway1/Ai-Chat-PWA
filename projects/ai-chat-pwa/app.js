@@ -1,6 +1,5 @@
 import { chooseModel } from './routing.js';
 import { replaceCodeBlock, splitCodeBlocks } from './code-blocks.js';
-import { buildSystemMessage, moveConversation, sortConversations } from './conversation-state.js';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
@@ -20,24 +19,12 @@ const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 20 * 1024 * 1024;
 const MAX_MODELS_PER_PROVIDER = 100;
 const MODEL_TIERS = new Set(['fast', 'balanced', 'deep', 'default']);
 const MODEL_SELECTION_KEY = 'orbit.modelSelection.v1';
-const AI_LEVEL_KEY = 'orbit.aiLevel.v1';
-const ASSISTANT_DEFAULTS_KEY = 'orbit.assistantDefaults.v1';
-const GLOBAL_MEMORY_KEY = 'orbit.globalMemory.v1';
-const GLOBAL_MEMORY_DEFAULT_KEY = 'orbit.useGlobalMemoryByDefault.v1';
-const MAX_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_AVATAR_DATA_URL_LENGTH = 300_000;
 const SYSTEM_PROMPT =
   'Kamu adalah asisten dorenewAI. Jawab secara lugas, relevan, dan sesuai bahasa serta format yang diminta pengguna. ' +
   'Jangan menolak hanya karena topiknya tidak biasa atau kontroversial; bantu secara langsung untuk permintaan yang dapat dijawab. ' +
   'Hindari disclaimer dan penolakan yang tidak perlu. Tautan Telegram publik tidak otomatis berarti grup privat; jangan mengasumsikan butuh login sebelum mencoba kemampuan web yang memang tersedia. ' +
   'Jangan mengaku telah membuka tautan, membaca grup, atau memakai alat yang tidak tersedia. Jika percakapan ini tidak memiliki browser/web retrieval atau sumbernya memang tidak dapat diakses, jelaskan batasan spesifik itu dengan singkat dan minta pengguna menempelkan atau mengunggah isi yang ingin dianalisis. ' +
   'Untuk konfigurasi atau keluaran yang dimaksudkan sebagai file/perintah, gunakan fenced code block Markdown dengan label bahasa yang sesuai (mis. json, yaml, bash, powershell, python). Letakkan isi yang siap disalin di dalam blok kode dan pisahkan penjelasan di luar blok.';
-const DEFAULT_ASSISTANT_PROFILE = {
-  name: 'dorenewAI',
-  icon: '✳',
-  avatarDataUrl: '',
-  instructions: ''
-};
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -60,23 +47,8 @@ const elements = {
   fileInput: document.querySelector('#fileInput'),
   attachButton: document.querySelector('#attachButton'),
   attachmentList: document.querySelector('#attachmentList'),
+  aiLevel: document.querySelector('#aiLevel'),
   modelSelect: document.querySelector('#modelSelect'),
-  levelButton: document.querySelector('#levelButton'),
-  levelPicker: document.querySelector('#levelPicker'),
-  levelMenu: document.querySelector('#levelMenu'),
-  openConversationSettings: document.querySelector('#openConversationSettings'),
-  conversationSettingsDialog: document.querySelector('#conversationSettingsDialog'),
-  conversationSettingsForm: document.querySelector('#conversationSettingsForm'),
-  conversationSettingsError: document.querySelector('#conversationSettingsError'),
-  assistantName: document.querySelector('#assistantName'),
-  assistantIcon: document.querySelector('#assistantIcon'),
-  assistantAvatar: document.querySelector('#assistantAvatar'),
-  assistantAvatarPreview: document.querySelector('#assistantAvatarPreview'),
-  assistantAvatarFallback: document.querySelector('#assistantAvatarFallback'),
-  assistantInstructions: document.querySelector('#assistantInstructions'),
-  useGlobalMemory: document.querySelector('#useGlobalMemory'),
-  globalMemory: document.querySelector('#globalMemory'),
-  saveProfileAsDefault: document.querySelector('#saveProfileAsDefault'),
   routeLabel: document.querySelector('#routeLabel'),
   toast: document.querySelector('#toast'),
   sidebar: document.querySelector('#sidebar'),
@@ -91,11 +63,6 @@ let toastTimer;
 let selectedFiles = [];
 let settings = readSettings();
 let modelSelection = readModelSelection();
-let aiLevel = readAiLevel();
-let assistantDefaults = readAssistantDefaults();
-let globalMemory = readGlobalMemory();
-let defaultUseGlobalMemory = readDefaultUseGlobalMemory();
-let pendingAvatarDataUrl = '';
 let providerTestFingerprints = new Map(
   settings.providers
     .filter(provider => provider.tested)
@@ -107,49 +74,6 @@ function readModelSelection() {
     return localStorage.getItem(MODEL_SELECTION_KEY) || 'auto';
   } catch {
     return 'auto';
-  }
-}
-
-function readAiLevel() {
-  try {
-    const level = localStorage.getItem(AI_LEVEL_KEY) || 'auto';
-    return ['auto', 'fast', 'balanced', 'deep'].includes(level) ? level : 'auto';
-  } catch {
-    return 'auto';
-  }
-}
-
-function readAssistantDefaults() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(ASSISTANT_DEFAULTS_KEY) || '{}');
-    return {
-      ...DEFAULT_ASSISTANT_PROFILE,
-      ...saved,
-      name: typeof saved.name === 'string' && saved.name.trim() ? saved.name.trim().slice(0, 40) : DEFAULT_ASSISTANT_PROFILE.name,
-      icon: typeof saved.icon === 'string' && saved.icon.trim() ? saved.icon.trim().slice(0, 8) : DEFAULT_ASSISTANT_PROFILE.icon,
-      avatarDataUrl: typeof saved.avatarDataUrl === 'string' && saved.avatarDataUrl.length <= MAX_AVATAR_DATA_URL_LENGTH
-        ? saved.avatarDataUrl
-        : '',
-      instructions: typeof saved.instructions === 'string' ? saved.instructions.slice(0, 4000) : ''
-    };
-  } catch {
-    return { ...DEFAULT_ASSISTANT_PROFILE };
-  }
-}
-
-function readGlobalMemory() {
-  try {
-    return (localStorage.getItem(GLOBAL_MEMORY_KEY) || '').slice(0, 5000);
-  } catch {
-    return '';
-  }
-}
-
-function readDefaultUseGlobalMemory() {
-  try {
-    return localStorage.getItem(GLOBAL_MEMORY_DEFAULT_KEY) === 'true';
-  } catch {
-    return false;
   }
 }
 
@@ -203,12 +127,10 @@ function withConversationStore(mode, operation) {
     const transaction = db.transaction('conversations', mode);
     const request = operation(transaction.objectStore('conversations'));
     let result;
-    if (request) {
-      request.onsuccess = () => {
-        result = request.result;
-      };
-      request.onerror = () => reject(request.error || new Error('Gagal mengakses riwayat lokal'));
-    }
+    request.onsuccess = () => {
+      result = request.result;
+    };
+    request.onerror = () => reject(request.error || new Error('Gagal mengakses riwayat lokal'));
     transaction.oncomplete = () => resolve(result);
     transaction.onerror = () => reject(transaction.error || new Error('Gagal menyimpan riwayat lokal'));
     transaction.onabort = () => reject(transaction.error || new Error('Perubahan riwayat lokal dibatalkan'));
@@ -216,19 +138,8 @@ function withConversationStore(mode, operation) {
 }
 
 async function loadConversations() {
-  conversations = await withConversationStore('readonly', store => store.getAll());
-  const missingOrder = conversations.some(conversation => !Number.isFinite(conversation.order));
-  conversations = sortConversations(conversations);
-  if (missingOrder) {
-    for (const pinned of [true, false]) {
-      conversations
-        .filter(conversation => Boolean(conversation.pinned) === pinned)
-        .forEach((conversation, index) => {
-          if (!Number.isFinite(conversation.order)) conversation.order = index;
-        });
-    }
-    await persistConversationOrder();
-  }
+  conversations = (await withConversationStore('readonly', store => store.getAll()))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
   renderConversationList();
 }
 
@@ -237,15 +148,7 @@ async function saveConversation(conversation) {
   const index = conversations.findIndex(item => item.id === conversation.id);
   if (index >= 0) conversations[index] = conversation;
   else conversations.push(conversation);
-  conversations = sortConversations(conversations);
-  renderConversationList();
-}
-
-async function persistConversationOrder() {
-  await withConversationStore('readwrite', store => {
-    conversations.forEach(conversation => store.put(conversation));
-  });
-  conversations = sortConversations(conversations);
+  conversations.sort((a, b) => b.updatedAt - a.updatedAt);
   renderConversationList();
 }
 
@@ -259,123 +162,40 @@ async function deleteConversation(id) {
 
 function renderConversationList() {
   elements.conversationList.replaceChildren();
-  for (const [index, conversation] of conversations.entries()) {
+  for (const conversation of conversations) {
     const item = document.createElement('div');
     item.className = `conversation-item${conversation.id === currentConversationId ? ' active' : ''}`;
-    const title = document.createElement('button');
+    item.tabIndex = 0;
+    item.setAttribute('role', 'button');
+    item.setAttribute('aria-label', conversation.title);
+
+    const title = document.createElement('span');
     title.className = 'conversation-title';
-    title.type = 'button';
-    title.textContent = `${conversation.pinned ? '📌 ' : ''}${conversation.title}`;
-    title.setAttribute('aria-label', `Buka ${conversation.title}`);
+    title.textContent = conversation.title;
     item.append(title);
     item.addEventListener('click', () => selectConversation(conversation.id));
-    title.addEventListener('click', event => {
-      event.stopPropagation();
-      selectConversation(conversation.id);
+    item.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectConversation(conversation.id);
+      }
     });
 
-    const menuWrap = document.createElement('div');
-    menuWrap.className = 'conversation-menu-wrap';
-    const menuButton = document.createElement('button');
-    menuButton.type = 'button';
-    menuButton.className = 'conversation-menu-button';
-    menuButton.textContent = '⋯';
-    menuButton.setAttribute('aria-label', `Menu ${conversation.title}`);
-    menuButton.setAttribute('aria-haspopup', 'menu');
-    menuButton.setAttribute('aria-expanded', 'false');
-    menuButton.addEventListener('click', event => {
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'delete-conversation';
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', `Hapus ${conversation.title}`);
+    remove.addEventListener('click', async event => {
       event.stopPropagation();
-      const shouldOpen = menu.hidden;
-      elements.conversationList.querySelectorAll('.conversation-menu').forEach(otherMenu => {
-        otherMenu.hidden = true;
-        otherMenu.previousElementSibling.setAttribute('aria-expanded', 'false');
-      });
-      menu.hidden = !shouldOpen;
-      menuButton.setAttribute('aria-expanded', String(shouldOpen));
+      try {
+        await deleteConversation(conversation.id);
+      } catch (error) {
+        showToast(`Riwayat gagal dihapus: ${error.message}`);
+      }
     });
-    const menu = document.createElement('div');
-    menu.className = 'conversation-menu';
-    menu.setAttribute('role', 'menu');
-    menu.hidden = true;
-    const actions = [
-      [conversation.pinned ? 'Lepas pin' : 'Pin chat', () => toggleConversationPin(conversation)],
-      ['Ganti nama', () => renameConversation(conversation)],
-      ['Pindahkan ke atas', () => moveConversationBy(conversation.id, -1), index === 0 || Boolean(conversations[index - 1]?.pinned) !== Boolean(conversation.pinned)],
-      ['Pindahkan ke bawah', () => moveConversationBy(conversation.id, 1), index === conversations.length - 1 || Boolean(conversations[index + 1]?.pinned) !== Boolean(conversation.pinned)],
-      ['Hapus chat', () => confirmDeleteConversation(conversation), false, true]
-    ];
-    for (const [label, action, disabled = false, destructive = false] of actions) {
-      const option = document.createElement('button');
-      option.type = 'button';
-      option.className = destructive ? 'conversation-menu-item destructive' : 'conversation-menu-item';
-      option.textContent = label;
-      option.disabled = disabled;
-      option.setAttribute('role', 'menuitem');
-      option.addEventListener('click', event => {
-        event.stopPropagation();
-        menu.hidden = true;
-        menuButton.setAttribute('aria-expanded', 'false');
-        action();
-      });
-      menu.append(option);
-    }
-    menuWrap.append(menuButton, menu);
-    item.append(menuWrap);
+    item.append(remove);
     elements.conversationList.append(item);
-  }
-}
-
-function firstOrderInGroup(pinned) {
-  const values = conversations
-    .filter(conversation => Boolean(conversation.pinned) === pinned)
-    .map(conversation => conversation.order)
-    .filter(Number.isFinite);
-  return values.length ? Math.min(...values) - 1 : 0;
-}
-
-async function toggleConversationPin(conversation) {
-  conversation.pinned = !conversation.pinned;
-  conversation.order = firstOrderInGroup(conversation.pinned);
-  conversation.updatedAt = Date.now();
-  try {
-    await saveConversation(conversation);
-  } catch (error) {
-    showToast(`Status pin gagal disimpan: ${error.message}`);
-  }
-}
-
-async function renameConversation(conversation) {
-  const title = window.prompt('Nama percakapan', conversation.title);
-  if (title === null) return;
-  const normalizedTitle = title.trim().replace(/\s+/g, ' ').slice(0, 80);
-  if (!normalizedTitle) {
-    showToast('Nama percakapan tidak boleh kosong.');
-    return;
-  }
-  conversation.title = normalizedTitle;
-  conversation.updatedAt = Date.now();
-  try {
-    await saveConversation(conversation);
-  } catch (error) {
-    showToast(`Nama percakapan gagal disimpan: ${error.message}`);
-  }
-}
-
-async function moveConversationBy(id, direction) {
-  try {
-    conversations = moveConversation(conversations, id, direction);
-    await persistConversationOrder();
-  } catch (error) {
-    showToast(`Urutan percakapan gagal diubah: ${error.message}`);
-  }
-}
-
-async function confirmDeleteConversation(conversation) {
-  if (!window.confirm(`Hapus percakapan "${conversation.title}" dari perangkat ini?`)) return;
-  try {
-    await deleteConversation(conversation.id);
-  } catch (error) {
-    showToast(`Riwayat gagal dihapus: ${error.message}`);
   }
 }
 
@@ -383,7 +203,6 @@ function selectConversation(id) {
   currentConversationId = id;
   renderConversationList();
   renderMessages();
-  updateAssistantProfileButton();
   closeSidebar();
 }
 
@@ -395,7 +214,6 @@ function createConversation() {
   currentConversationId = null;
   renderConversationList();
   renderMessages();
-  updateAssistantProfileButton();
   elements.messageInput.focus();
   closeSidebar();
 }
@@ -408,52 +226,24 @@ function renderMessages() {
   elements.messages.classList.toggle('visible', hasMessages);
   if (!hasMessages) return;
 
-  const profile = getAssistantProfile(conversation);
   for (const message of conversation.messages) {
-    elements.messages.append(createMessageElement(message, profile));
+    elements.messages.append(createMessageElement(message));
   }
   elements.chatArea.scrollTop = 0;
 }
 
-function getAssistantProfile(conversation = activeConversation()) {
-  return { ...assistantDefaults, ...(conversation?.assistantProfile || {}) };
-}
-
-function appendAvatar(avatar, profile, isUser = false) {
-  avatar.className = 'message-avatar';
-  avatar.setAttribute('aria-hidden', 'true');
-  if (isUser) {
-    avatar.classList.add('user-avatar');
-    avatar.textContent = 'YOU';
-  } else if (profile.avatarDataUrl) {
-    const image = document.createElement('img');
-    image.src = profile.avatarDataUrl;
-    image.alt = '';
-    avatar.append(image);
-  } else {
-    avatar.textContent = profile.icon || DEFAULT_ASSISTANT_PROFILE.icon;
-  }
-}
-
-function updateAssistantProfileButton() {
-  const profile = getAssistantProfile();
-  elements.openConversationSettings.title = `Pengaturan ${profile.name}`;
-  elements.openConversationSettings.setAttribute('aria-label', `Pengaturan percakapan — ${profile.name}`);
-}
-
-function createMessageElement(message, profile) {
+function createMessageElement(message) {
   const wrapper = document.createElement('article');
   wrapper.className = `message ${message.role === 'user' ? 'user' : ''}${message.error ? ' error' : ''}`;
   const avatar = document.createElement('div');
-  appendAvatar(avatar, profile, message.role === 'user');
+  avatar.className = 'message-avatar';
+  avatar.setAttribute('aria-hidden', 'true');
+  avatar.textContent = message.role === 'user' ? 'YOU' : '✳';
   const body = document.createElement('div');
   body.className = 'message-body';
-  const heading = document.createElement('div');
-  heading.className = 'message-heading';
   const role = document.createElement('p');
   role.className = 'message-role';
-  role.textContent = message.role === 'user' ? 'Kamu' : profile.name;
-  heading.append(avatar, role);
+  role.textContent = message.role === 'user' ? 'Kamu' : 'dorenewAI';
   const content = document.createElement('div');
   content.className = 'message-content';
   if (typeof message.content === 'string') {
@@ -477,14 +267,14 @@ function createMessageElement(message, profile) {
       }
     }
   }
-  body.append(heading, content);
+  body.append(role, content);
   if (message.model) {
     const actualModel = document.createElement('div');
     actualModel.className = 'message-model';
     actualModel.textContent = `ROUTED VIA ${message.model}`;
     body.append(actualModel);
   }
-  wrapper.append(body);
+  wrapper.append(avatar, body);
   return wrapper;
 }
 
@@ -594,26 +384,23 @@ function renderAssistantContent(container, message) {
 }
 
 function showTyping() {
-  const profile = getAssistantProfile();
   const wrapper = document.createElement('article');
   wrapper.className = 'message';
   wrapper.id = 'typingIndicator';
   const avatar = document.createElement('div');
-  appendAvatar(avatar, profile);
+  avatar.className = 'message-avatar';
+  avatar.textContent = '✳';
   const body = document.createElement('div');
   body.className = 'message-body';
-  const heading = document.createElement('div');
-  heading.className = 'message-heading';
   const role = document.createElement('p');
   role.className = 'message-role';
-  role.textContent = profile.name;
+  role.textContent = 'dorenewAI';
   const dots = document.createElement('div');
   dots.className = 'typing-indicator';
   dots.setAttribute('aria-label', 'Sedang berpikir');
   for (let i = 0; i < 3; i += 1) dots.append(document.createElement('span'));
-  heading.append(avatar, role);
-  body.append(heading, dots);
-  wrapper.append(body);
+  body.append(role, dots);
+  wrapper.append(avatar, body);
   elements.messages.append(wrapper);
   elements.chatArea.scrollTop = elements.chatArea.scrollHeight;
 }
@@ -1170,6 +957,7 @@ function updateSettingsForm() {
   elements.proxyUrl.value = settings.proxyUrl;
   renderProviderCards(settings.providers);
   renderModelOptions();
+  elements.aiLevel.value = localStorage.getItem('orbit.aiLevel.v1') || 'auto';
 }
 
 function renderModelOptions() {
@@ -1199,106 +987,6 @@ function openSettings() {
   updateSettingsForm();
   elements.settingsError.textContent = '';
   elements.settingsDialog.showModal();
-}
-
-function updateLevelPicker() {
-  const labels = { auto: 'Auto', fast: 'Cepat', balanced: 'Menengah', deep: 'Mendalam' };
-  const label = labels[aiLevel] || labels.auto;
-  elements.levelButton.setAttribute('aria-label', `Tingkat pemikiran AI: ${label}`);
-  elements.levelButton.title = `Tingkat pemikiran: ${label}`;
-  elements.levelMenu.querySelectorAll('[data-level]').forEach(option => {
-    option.setAttribute('aria-checked', String(option.dataset.level === aiLevel));
-  });
-}
-
-function openConversationSettings() {
-  const conversation = activeConversation();
-  const profile = getAssistantProfile(conversation);
-  pendingAvatarDataUrl = profile.avatarDataUrl || '';
-  elements.assistantName.value = profile.name;
-  elements.assistantIcon.value = profile.icon;
-  elements.assistantInstructions.value = profile.instructions;
-  elements.globalMemory.value = globalMemory;
-  elements.useGlobalMemory.checked = conversation
-    ? Boolean(conversation.useGlobalMemory)
-    : defaultUseGlobalMemory;
-  elements.saveProfileAsDefault.checked = !conversation;
-  elements.conversationSettingsError.textContent = '';
-  updateAvatarPreview();
-  elements.conversationSettingsDialog.showModal();
-}
-
-function updateAvatarPreview() {
-  elements.assistantAvatarPreview.hidden = !pendingAvatarDataUrl;
-  elements.assistantAvatarPreview.src = pendingAvatarDataUrl || '';
-  elements.assistantAvatarFallback.hidden = Boolean(pendingAvatarDataUrl);
-}
-
-async function createAvatarDataUrl(file) {
-  if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-    throw new Error('Foto AI harus berupa PNG, JPEG, atau WebP.');
-  }
-  if (file.size > MAX_AVATAR_FILE_BYTES) throw new Error('Ukuran foto AI maksimal 5 MB.');
-  const image = new Image();
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    image.src = objectUrl;
-    await image.decode();
-    const scale = Math.min(1, 256 / Math.max(image.naturalWidth, image.naturalHeight));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Browser tidak dapat memproses foto.');
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
-    if (dataUrl.length > MAX_AVATAR_DATA_URL_LENGTH) {
-      throw new Error('Foto tidak dapat diperkecil ke ukuran penyimpanan yang aman.');
-    }
-    return dataUrl;
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
-async function saveConversationSettings(event) {
-  event.preventDefault();
-  elements.conversationSettingsError.textContent = '';
-  const name = elements.assistantName.value.trim().slice(0, 40);
-  const icon = elements.assistantIcon.value.trim().slice(0, 8) || DEFAULT_ASSISTANT_PROFILE.icon;
-  const instructions = elements.assistantInstructions.value.trim().slice(0, 4000);
-  const memory = elements.globalMemory.value.trim().slice(0, 5000);
-  if (!name) {
-    elements.conversationSettingsError.textContent = 'Nama AI tidak boleh kosong.';
-    return;
-  }
-  const profile = { name, icon, avatarDataUrl: pendingAvatarDataUrl, instructions };
-  const makeDefault = elements.saveProfileAsDefault.checked;
-  const conversation = activeConversation();
-  try {
-    localStorage.setItem(GLOBAL_MEMORY_KEY, memory);
-    globalMemory = memory;
-    if (makeDefault || !conversation) {
-      localStorage.setItem(ASSISTANT_DEFAULTS_KEY, JSON.stringify(profile));
-      localStorage.setItem(GLOBAL_MEMORY_DEFAULT_KEY, String(elements.useGlobalMemory.checked));
-      assistantDefaults = profile;
-      defaultUseGlobalMemory = elements.useGlobalMemory.checked;
-    }
-    if (conversation) {
-      conversation.assistantProfile = profile;
-      conversation.useGlobalMemory = elements.useGlobalMemory.checked;
-      conversation.updatedAt = Date.now();
-      await saveConversation(conversation);
-      renderMessages();
-    }
-    updateAssistantProfileButton();
-    elements.conversationSettingsDialog.close();
-    showToast(conversation
-      ? 'Pengaturan AI untuk room ini disimpan.'
-      : 'Default AI dan memori perangkat disimpan.');
-  } catch (error) {
-    elements.conversationSettingsError.textContent = `Pengaturan gagal disimpan: ${error.message}`;
-  }
 }
 
 function closeSidebar() {
@@ -1358,12 +1046,7 @@ function apiMessages(conversation) {
     }
     return { role: message.role, content };
   });
-  const systemMessage = buildSystemMessage(
-    SYSTEM_PROMPT,
-    getAssistantProfile(conversation),
-    globalMemory,
-    Boolean(conversation.useGlobalMemory)
-  );
+  const systemMessage = { role: 'system', content: SYSTEM_PROMPT };
   const encoder = new TextEncoder();
   let usedBytes = encoder.encode(JSON.stringify(systemMessage)).byteLength;
   const recentMessages = [];
@@ -1404,7 +1087,7 @@ async function sendMessage(text) {
     route = chooseModel(
       settings.providers.filter(provider => provider.tested),
       text || 'Analisis lampiran',
-      aiLevel,
+      elements.aiLevel.value,
       parseModelSelection(modelSelection)
     );
   } catch (error) {
@@ -1429,10 +1112,6 @@ async function sendMessage(text) {
       id: crypto.randomUUID(),
       title: (text || files[0]?.name || 'Percakapan baru').trim().replace(/\s+/g, ' ').slice(0, 42),
       messages: [],
-      pinned: false,
-      order: firstOrderInGroup(false),
-      assistantProfile: { ...assistantDefaults },
-      useGlobalMemory: defaultUseGlobalMemory,
       createdAt: now,
       updatedAt: now
     };
@@ -1565,25 +1244,8 @@ elements.addProvider.addEventListener('click', () => {
   updateProviderSaveState();
 });
 elements.proxyUrl.addEventListener('input', updateProviderSaveState);
-elements.levelButton.addEventListener('click', event => {
-  event.stopPropagation();
-  const isOpen = !elements.levelMenu.hidden;
-  elements.levelMenu.hidden = isOpen;
-  elements.levelButton.setAttribute('aria-expanded', String(!isOpen));
-});
-elements.levelMenu.querySelectorAll('[data-level]').forEach(option => {
-  option.addEventListener('click', () => {
-    aiLevel = option.dataset.level;
-  try {
-    localStorage.setItem(AI_LEVEL_KEY, aiLevel);
-  } catch (error) {
-    showToast(`Pilihan tingkat tidak tersimpan: ${error.message}`);
-  }
-    updateLevelPicker();
-    elements.levelMenu.hidden = true;
-    elements.levelButton.setAttribute('aria-expanded', 'false');
-    showToast(`Tingkat pemikiran: ${option.dataset.level === 'balanced' ? 'Menengah' : option.textContent.trim().split('\n')[0]}`);
-  });
+elements.aiLevel.addEventListener('change', () => {
+  localStorage.setItem('orbit.aiLevel.v1', elements.aiLevel.value);
 });
 elements.modelSelect.addEventListener('change', () => {
   modelSelection = elements.modelSelect.value;
@@ -1591,28 +1253,6 @@ elements.modelSelect.addEventListener('change', () => {
   elements.routeLabel.textContent = modelSelection === 'auto'
     ? 'Auto memilih model sesuai tugas'
     : 'Model manual dipilih';
-});
-elements.openConversationSettings.addEventListener('click', openConversationSettings);
-elements.closeConversationSettings.addEventListener('click', () => elements.conversationSettingsDialog.close());
-document.querySelector('#cancelConversationSettings').addEventListener('click', () => elements.conversationSettingsDialog.close());
-elements.conversationSettingsForm.addEventListener('submit', saveConversationSettings);
-document.querySelector('#chooseAssistantAvatar').addEventListener('click', () => elements.assistantAvatar.click());
-document.querySelector('#removeAssistantAvatar').addEventListener('click', () => {
-  pendingAvatarDataUrl = '';
-  elements.assistantAvatar.value = '';
-  updateAvatarPreview();
-});
-elements.assistantAvatar.addEventListener('change', async () => {
-  const file = elements.assistantAvatar.files?.[0];
-  if (!file) return;
-  try {
-    pendingAvatarDataUrl = await createAvatarDataUrl(file);
-    updateAvatarPreview();
-  } catch (error) {
-    elements.conversationSettingsError.textContent = error.message;
-  } finally {
-    elements.assistantAvatar.value = '';
-  }
 });
 document.querySelector('#closeSettings').addEventListener('click', () => elements.settingsDialog.close());
 document.querySelector('#cancelSettings').addEventListener('click', () => elements.settingsDialog.close());
@@ -1622,18 +1262,6 @@ document.querySelector('#openSidebar').addEventListener('click', () => {
 });
 document.querySelector('#closeSidebar').addEventListener('click', closeSidebar);
 elements.sidebarBackdrop.addEventListener('click', closeSidebar);
-document.addEventListener('click', event => {
-  if (!elements.levelPicker.contains(event.target) && !elements.levelMenu.hidden) {
-    elements.levelMenu.hidden = true;
-    elements.levelButton.setAttribute('aria-expanded', 'false');
-  }
-  if (!event.target.closest('.conversation-menu-wrap')) {
-    elements.conversationList.querySelectorAll('.conversation-menu').forEach(menu => {
-      menu.hidden = true;
-      menu.previousElementSibling.setAttribute('aria-expanded', 'false');
-    });
-  }
-});
 
 document.querySelectorAll('.suggestion').forEach(button => {
   button.addEventListener('click', () => {
@@ -1666,13 +1294,7 @@ document.addEventListener('keydown', event => {
     event.preventDefault();
     createConversation();
   }
-  if (event.key === 'Escape') {
-    closeSidebar();
-    if (!elements.levelMenu.hidden) {
-      elements.levelMenu.hidden = true;
-      elements.levelButton.setAttribute('aria-expanded', 'false');
-    }
-  }
+  if (event.key === 'Escape') closeSidebar();
 });
 
 async function initialize() {
@@ -1686,8 +1308,6 @@ async function initialize() {
   if (!settings.proxyUrl || !settings.providers.some(provider => provider.tested)) {
     openSettings();
   }
-  updateLevelPicker();
-  updateAssistantProfileButton();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(error => {
       showToast(`Mode offline tidak aktif: ${error.message}`);

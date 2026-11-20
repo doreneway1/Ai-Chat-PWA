@@ -73,19 +73,13 @@
               <div class="composer-tools">
                 <button class="attach-button" id="attachButton" type="button" aria-label="Lampirkan file">＋</button>
                 <input id="fileInput" type="file" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.yaml,.yml,.toml,.ini,.log,.html,.htm,.css,.js,.mjs,.cjs,.ts,.jsx,.tsx,.vue,.svelte,.py,.ipynb,.java,.kt,.kts,.cs,.c,.h,.hpp,.cpp,.go,.rs,.rb,.php,.swift,.sh,.bash,.ps1,.sql,.tf,.properties,.gradle,.r,.lua,.pl,.dockerfile,.env,.pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx,.pptx">
-                <div class="level-picker" id="levelPicker">
-                  <button class="tool-icon-button" id="levelButton" type="button" aria-label="Tingkat pemikiran AI" aria-expanded="false" aria-controls="levelMenu">
-                    <span aria-hidden="true">◉</span>
-                  </button>
-                  <div class="level-menu" id="levelMenu" role="menu" hidden>
-                    <p class="menu-caption">TINGKAT PEMIKIRAN</p>
-                    <button type="button" role="menuitemradio" data-level="auto" aria-checked="true">Auto <span>Ikuti jenis tugas</span></button>
-                    <button type="button" role="menuitemradio" data-level="fast" aria-checked="false">Cepat <span>Jawaban ringan</span></button>
-                    <button type="button" role="menuitemradio" data-level="balanced" aria-checked="false">Menengah <span>Seimbang</span></button>
-                    <button type="button" role="menuitemradio" data-level="deep" aria-checked="false">Mendalam <span>Analisis lebih jauh</span></button>
-                  </div>
-                </div>
-                <button class="tool-icon-button" id="openConversationSettings" type="button" aria-label="Pengaturan percakapan" title="Pengaturan percakapan">⚙</button>
+                <label class="sr-only" for="aiLevel">Tingkat AI</label>
+                <select class="level-select" id="aiLevel" aria-label="Pilih tingkat AI">
+                  <option value="auto">Auto</option>
+                  <option value="fast">Cepat</option>
+                  <option value="balanced">Seimbang</option>
+                  <option value="deep">Mendalam</option>
+                </select>
                 <span class="composer-hint">Enter kirim · Shift+Enter baris baru</span>
               </div>
               <button class="send-button" id="sendButton" type="submit" aria-label="Kirim pesan">
@@ -125,50 +119,6 @@
       </form>
     </dialog>
 
-    <dialog class="settings-dialog conversation-settings-dialog" id="conversationSettingsDialog" aria-labelledby="conversationSettingsTitle">
-      <form class="settings-card" id="conversationSettingsForm">
-        <div class="dialog-heading">
-          <div>
-            <p class="eyebrow">PERSONALISASI CHAT</p>
-            <h2 id="conversationSettingsTitle">Pengaturan percakapan</h2>
-          </div>
-          <button class="icon-button" id="closeConversationSettings" type="button" aria-label="Tutup pengaturan percakapan">×</button>
-        </div>
-        <label for="assistantName">Nama AI</label>
-        <input id="assistantName" name="assistantName" maxlength="40" type="text" placeholder="dorenewAI" autocomplete="off">
-        <label for="assistantIcon">Ikon AI (emoji, opsional jika pakai foto)</label>
-        <input id="assistantIcon" name="assistantIcon" maxlength="8" type="text" placeholder="✳" autocomplete="off">
-        <label for="assistantAvatar">Foto AI</label>
-        <div class="avatar-editor">
-          <img id="assistantAvatarPreview" alt="Pratinjau foto AI" hidden>
-          <span id="assistantAvatarFallback" aria-hidden="true">✳</span>
-          <input id="assistantAvatar" name="assistantAvatar" type="file" accept="image/png,image/jpeg,image/webp" hidden>
-          <button class="text-button" id="chooseAssistantAvatar" type="button">Pilih foto</button>
-          <button class="text-button" id="removeAssistantAvatar" type="button">Hapus foto</button>
-        </div>
-        <label for="assistantInstructions">Instruksi untuk room ini</label>
-        <textarea id="assistantInstructions" name="assistantInstructions" rows="4" maxlength="4000" placeholder="Contoh: jawab dalam bahasa Indonesia, sertakan contoh singkat, dan tanyakan jika kebutuhan saya belum jelas."></textarea>
-        <p class="field-help">Instruksi mengatur gaya dan konteks jawaban. Instruksi tidak bisa menonaktifkan kebijakan provider/model atau memberi kemampuan yang tidak tersedia.</p>
-        <label class="checkbox-row" for="useGlobalMemory">
-          <input id="useGlobalMemory" type="checkbox">
-          <span>Sertakan memori global pada room ini</span>
-        </label>
-        <label for="globalMemory">Memori global perangkat</label>
-        <textarea id="globalMemory" name="globalMemory" rows="4" maxlength="5000" placeholder="Catatan yang ingin tersedia di room lain, misalnya preferensi bahasa atau konteks proyek."></textarea>
-        <p class="field-help">Memori global adalah catatan yang kamu tulis sendiri dan dikirim sebagai konteks jika opsi di atas aktif. Riwayat lengkap tetap terpisah per room.</p>
-        <label class="checkbox-row" for="saveProfileAsDefault">
-          <input id="saveProfileAsDefault" type="checkbox">
-          <span>Jadikan nama, ikon, dan instruksi ini default untuk chat baru</span>
-        </label>
-        <div class="settings-error" id="conversationSettingsError" role="alert"></div>
-        <div class="dialog-actions">
-          <button class="text-button" id="cancelConversationSettings" type="button">Batal</button>
-          <button class="primary-button" type="submit">Simpan pengaturan room</button>
-        </div>
-      </form>
-    </dialog>
-
-    <input id="conversationAvatarInput" type="file" accept="image/png,image/jpeg,image/webp" hidden>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="./app.js"></script>
   </body>

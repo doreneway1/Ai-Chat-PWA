@@ -23,19 +23,11 @@ Buka aplikasi lalu pilih **⚙ Pengaturan API**:
 
 Dropdown model ada di bar atas chat, di samping titik hijau. **Auto · pilih sesuai tugas** memakai heuristik lokal; pilihan **Provider · model ID** mengunci model tersebut untuk pesan berikutnya. Pilihan tersimpan di browser perangkat ini.
 
-Semua model dari provider yang sudah diuji muncul di dropdown. Tambahkan model melalui **Pengaturan API → Muat model**, lalu test koneksi dan simpan. Tombol ikon lingkaran di sebelah lampiran membuka tingkat **Auto**, **Cepat**, **Menengah**, atau **Mendalam**. Pilihan ini memengaruhi pemilihan model untuk pesan berikutnya; Auto menyimpulkan kebutuhan tugas dari teks. Tingkat memilih model lokal berdasarkan tag pada daftar model: `model-id | fast`, `model-id | balanced`, `model-id | deep`, atau `model-id | default`. Model yang diimpor otomatis bertag `balanced`; tanpa tag kemampuan yang benar, Auto dapat memilih model pertama yang cocok.
+Semua model dari provider yang sudah diuji muncul di dropdown. Tambahkan model melalui **Pengaturan API → Muat model**, lalu test koneksi dan simpan. Tingkat **Auto**, **Cepat**, **Seimbang**, dan **Mendalam** memilih model lokal berdasarkan tag pada daftar model: `model-id | fast`, `model-id | balanced`, `model-id | deep`, atau `model-id | default`. Model yang diimpor otomatis bertag `balanced`; tanpa tag kemampuan yang benar, Auto dapat memilih model pertama yang cocok.
 
 Auto memakai heuristik sederhana dan bukan router cerdas atau jaminan kualitas setara Venice. Pemilihan hanya mencakup model yang dikonfigurasi.
 
 Prompt sistem meminta jawaban lugas, menghindari penolakan yang tidak perlu, dan jujur jika tidak punya kemampuan membuka tautan. Prompt tidak menonaktifkan kebijakan provider/model. Aplikasi tidak memiliki browser web untuk membuka Telegram; tempel teks atau unggah ekspor yang memang boleh kamu bagikan.
-
-## Personalisasi room dan daftar chat
-
-Ikon pengaturan di sebelah pilihan tingkat membuka pengaturan percakapan. Kamu bisa mengganti nama dan ikon/foto AI, serta menambahkan instruksi gaya atau konteks untuk room. Profil pada room yang sudah ada tersimpan di riwayat perangkat tersebut; opsi default dipakai untuk chat baru. Instruksi tidak memberi model kemampuan tambahan dan tidak mengesampingkan kebijakan provider.
-
-Memori percakapan tetap terpisah per room. Bagian **Memori global perangkat** adalah catatan teks manual, bukan ringkasan otomatis seluruh chat. Memori itu hanya disisipkan ke konteks model pada room yang mencentang **Sertakan memori global pada room ini**. Semua catatan dan riwayat tersimpan lokal di browser perangkat; keduanya tidak tersinkron ke perangkat lain.
-
-Menu ⋯ pada tiap percakapan menyediakan pin lebih dari satu chat, ganti nama, pindahkan ke atas/bawah di kelompok pin yang sama, dan hapus. Perubahan tersimpan bersama riwayat lokal.
 
 ## Blok kode dan perintah
 
@@ -43,7 +35,7 @@ Jawaban Markdown ditampilkan sebagai paragraf, judul, daftar, tabel, tautan, tek
 
 ## iPhone dan penyimpanan
 
-Ukuran font kotak chat, editor kode, pilihan model, dan input pengaturan minimal 16 px pada layar ponsel agar Safari tidak memperbesar tampilan otomatis saat kolom disentuh. Jawaban baru diposisikan dari awal jawaban, bukan langsung ke ujung; percakapan yang dibuka kembali juga mulai dari bagian atas.
+Ukuran font kotak chat dan input pengaturan minimal 16 px pada layar ponsel agar Safari tidak memperbesar tampilan otomatis saat kolom disentuh. Jawaban baru diposisikan dari awal jawaban, bukan langsung ke ujung; percakapan yang dibuka kembali juga mulai dari bagian atas.
 
 ## Lampiran dan riwayat
 
