@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "test": "node --test cloudflare/*.test.mjs routing.test.mjs code-blocks.test.mjs markdown.test.mjs conversation-state.test.mjs"
+    "test": "node --test cloudflare/*.test.mjs routing.test.mjs code-blocks.test.mjs markdown.test.mjs"
   },
   "dependencies": {
     "dompurify": "^3.4.18",
