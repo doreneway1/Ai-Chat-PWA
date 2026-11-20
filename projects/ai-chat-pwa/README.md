@@ -23,11 +23,13 @@ Buka aplikasi lalu pilih **⚙ Pengaturan API**:
 
 Dropdown model ada di bar atas chat, di samping titik hijau. **Auto · pilih sesuai tugas** memakai heuristik lokal; pilihan **Provider · model ID** mengunci model tersebut untuk pesan berikutnya. Pilihan tersimpan di browser perangkat ini.
 
-Semua model dari provider yang sudah diuji muncul di dropdown. Tambahkan model melalui **Pengaturan API → Muat model**, lalu test koneksi dan simpan. Tingkat **Auto**, **Cepat**, **Seimbang**, dan **Mendalam** memilih model lokal berdasarkan tag pada daftar model: `model-id | fast`, `model-id | balanced`, `model-id | deep`, atau `model-id | default`. Model yang diimpor otomatis bertag `balanced`; tanpa tag kemampuan yang benar, Auto dapat memilih model pertama yang cocok.
+Semua model dari provider yang sudah diuji muncul di dropdown. Tambahkan model melalui **Pengaturan API → Muat model**, lalu test koneksi dan simpan. Ikon lingkaran di area composer membuka tingkat **Auto**, **Cepat**, **Menengah**, atau **Mendalam**. Pilihan ini tetap memengaruhi router lokal untuk pesan berikutnya. Tingkat memilih model berdasarkan tag: `model-id | fast`, `model-id | balanced`, `model-id | deep`, atau `model-id | default`. Model yang diimpor otomatis bertag `balanced`.
 
 Auto memakai heuristik sederhana dan bukan router cerdas atau jaminan kualitas setara Venice. Pemilihan hanya mencakup model yang dikonfigurasi.
 
 Prompt sistem meminta jawaban lugas, menghindari penolakan yang tidak perlu, dan jujur jika tidak punya kemampuan membuka tautan. Prompt tidak menonaktifkan kebijakan provider/model. Aplikasi tidak memiliki browser web untuk membuka Telegram; tempel teks atau unggah ekspor yang memang boleh kamu bagikan.
+
+Ikon pengaturan di sebelah tingkat pemikiran mengatur nama, ikon/foto AI, dan instruksi gaya/konteks. Profil disimpan per room; pengaturan bisa dijadikan default untuk chat baru. Instruksi tidak bisa melewati kebijakan provider/model atau memberi kemampuan yang tidak tersedia. Memori room tetap terpisah. Memori global adalah catatan teks manual yang disimpan di browser perangkat dan hanya dikirim untuk room yang mengaktifkan opsinya; riwayat chat lain tidak otomatis dikirim. Menu ⋯ pada chat menyediakan pin beberapa percakapan, ganti nama, pindah urutan dalam kelompok pin yang sama, dan hapus.
 
 ## Blok kode dan perintah
 
@@ -35,7 +37,7 @@ Jawaban Markdown ditampilkan sebagai paragraf, judul, daftar, tabel, tautan, tek
 
 ## iPhone dan penyimpanan
 
-Ukuran font kotak chat dan input pengaturan minimal 16 px pada layar ponsel agar Safari tidak memperbesar tampilan otomatis saat kolom disentuh. Jawaban baru diposisikan dari awal jawaban, bukan langsung ke ujung; percakapan yang dibuka kembali juga mulai dari bagian atas.
+Ukuran font kotak chat, editor kode, dan input pengaturan minimal 16 px pada layar ponsel agar Safari tidak memperbesar tampilan otomatis saat kolom disentuh. Identitas avatar diletakkan sejajar dengan nama di atas pesan agar isi pesan memiliki lebar yang konsisten.
 
 ## Lampiran dan riwayat
 
@@ -44,6 +46,7 @@ Ukuran font kotak chat dan input pengaturan minimal 16 px pada layar ponsel agar
 - XLSX/PPTX/DOCX diproses di perangkat. Isi yang diekstrak, prompt, dan gambar dikirim ke Worker lalu ke provider saat chat dikirim. Dukungan gambar juga bergantung pada provider/model.
 - API key, Base URL, dan pengaturan provider tersimpan di `localStorage` browser.
 - Riwayat chat tersimpan di `IndexedDB` browser. Foto disimpan bersama pesan sebagai data URL/base64; file teks dan dokumen yang dilampirkan disimpan sebagai teks hasil ekstraksi. Artinya foto dan riwayat memang memakai ruang penyimpanan komputer/ponsel ini. Ukurannya bergantung pada panjang chat dan lampiran; data lokal browser juga tunduk pada kuota browser/perangkat.
+- Foto profil AI dikompres di browser dan disimpan lokal bersama default atau room terkait.
 - Nama internal penyimpanan lama tetap dipertahankan agar pembaruan brand ke dorenewAI tidak menghapus riwayat, key, atau pengaturan yang sudah tersimpan.
 - Hapus chat dari daftar percakapan untuk menghapus pesannya beserta lampiran lokalnya. **Clear site data / Hapus data situs** di pengaturan browser menghapus seluruh riwayat serta pengaturan/key situs pada browser itu. Data tidak disinkronkan antarperangkat.
 - Penyimpanan browser tidak dienkripsi oleh aplikasi. Lindungi perangkat/profil browser dan jangan membagikan aksesnya. Saat chat dikirim, prompt, lampiran, dan API key diteruskan ke Worker dan provider yang dipilih; periksa aturan privasi kedua layanan.
