@@ -27,9 +27,20 @@ Semua model dari provider yang sudah diuji muncul di dropdown. Tambahkan model m
 
 Auto memakai heuristik sederhana dan bukan router cerdas atau jaminan kualitas setara Venice. Pemilihan hanya mencakup model yang dikonfigurasi.
 
-Prompt sistem meminta jawaban lugas, menghindari penolakan yang tidak perlu, dan jujur jika tidak punya kemampuan membuka tautan. Prompt tidak menonaktifkan kebijakan provider/model. Aplikasi tidak memiliki browser web untuk membuka Telegram; tempel teks atau unggah ekspor yang memang boleh kamu bagikan.
+Prompt sistem meminta jawaban lugas, menghindari penolakan yang tidak perlu, dan jujur jika tidak punya kemampuan membuka tautan. Prompt tidak menonaktifkan kebijakan provider/model. Aplikasi tidak memiliki browser interaktif; tautan publik dibaca melalui Worker seperti dijelaskan pada bagian Membaca tautan publik, sedangkan isi privat seperti riwayat grup Telegram tetap harus ditempel atau diunggah sebagai ekspor yang memang boleh kamu bagikan.
 
 Ikon pengaturan di sebelah tingkat pemikiran mengatur nama, ikon/foto AI, dan instruksi gaya/konteks. Profil disimpan per room; pengaturan bisa dijadikan default untuk chat baru. Instruksi tidak bisa melewati kebijakan provider/model atau memberi kemampuan yang tidak tersedia. Memori room tetap terpisah. Memori global adalah catatan teks manual yang disimpan di browser perangkat dan hanya dikirim untuk room yang mengaktifkan opsinya; riwayat chat lain tidak otomatis dikirim. Menu ⋯ pada chat menyediakan pin beberapa percakapan, ganti nama, pindah urutan dalam kelompok pin yang sama, dan hapus.
+
+## Membaca tautan publik
+
+Jika pesan berisi tautan `http://` atau `https://`, aplikasi menampilkannya sebagai chip di atas kotak pesan. Saat pesan dikirim, Cloudflare Worker mengambil isi halaman publik tersebut melalui route `POST /api/scrape`, mengekstrak judul, deskripsi, dan teks bersihnya (maksimal 20.000 karakter per tautan, 3 tautan per pesan, total konteks tautan maksimal 40.000 karakter), lalu menyisipkannya sebagai blok `SUMBER WEB` pada pesan tersebut. Hapus chip tautan sebelum mengirim jika isinya tidak ingin dibaca.
+
+- Kemampuan ini milik aplikasi dan Worker, bukan model: semua provider/model yang terhubung dapat memakainya. Model menerima isi halaman sebagai data untuk dianalisis, bukan sebagai instruksi.
+- Konteks tautan hanya dikirim ke provider untuk pesan terakhir yang memuatnya, sama seperti lampiran gambar, agar riwayat lama tidak menghabiskan konteks berulang kali. Kartu sumber di bawah pesan menunjukkan tautan yang berhasil atau gagal dibaca; hasil dan kegagalannya tersimpan di riwayat lokal bersama pesan.
+- Hanya halaman publik HTML/teks yang dapat dibaca. Halaman yang memerlukan login, dimuat sepenuhnya dengan JavaScript, menolak pengambilan otomatis, atau berada di jaringan privat/lokal akan gagal dan pesan tetap dikirim tanpa isi tautan tersebut. Tautan grup Telegram hanya menghasilkan pratinjau publiknya (nama, deskripsi, jumlah anggota), bukan riwayat percakapan di dalam grup.
+- Worker menolak URL berkredensial, port tidak standar, alamat IP privat/reserved, dan pengalihan menuju alamat seperti itu untuk mencegah penyalahgunaan sebagai proxy ke jaringan internal (SSRF). Worker tidak memeriksa hasil DNS, jadi nama domain publik yang diarahkan pemiliknya ke IP privat tidak dapat dideteksi di lapisan ini.
+- Isi halaman yang berhasil dibaca dikirim ke provider bersama prompt saat chat dikirim, sama seperti lampiran. Jangan menempelkan tautan yang isinya tidak boleh dibagikan ke provider yang dipilih.
+- Fitur ini memakai Worker yang sama dengan relay chat; tidak ada konfigurasi tambahan. Setelah memperbarui source Worker, salin dan deploy ulang Worker secara manual melalui Cloudflare Dashboard agar route `/api/scrape` tersedia.
 
 ## Blok kode dan perintah
 

@@ -132,6 +132,13 @@ h1 span { color: #747581; }
 .code-editor-actions { justify-content: flex-end; padding: 8px; border-top: 1px solid #30313b; }
 .code-editor-actions .text-button, .code-editor-actions .primary-button { min-height: 30px; font-size: 10px; }
 .message-model { margin-top: 8px; color: #727482; font: 9px var(--mono); }
+.source-list { display: flex; flex-direction: column; gap: 6px; margin-top: 9px; }
+.source-card { display: flex; align-items: baseline; gap: 8px; padding: 7px 9px; border: 1px solid #34353f; border-radius: 8px; background: #17181f; font-size: 11px; }
+.source-status { flex: 0 0 auto; color: #999aa6; font: 9px var(--mono); }
+.source-card.error .source-status { color: #ff9a9a; }
+.source-card a { color: #bfe77a; text-decoration: none; overflow-wrap: anywhere; }
+.source-card a:hover { text-decoration: underline; }
+.source-label { color: #c9c8d2; overflow-wrap: anywhere; }
 .message.error .message-content { color: #ff9a9a; }
 .typing-indicator { display: inline-flex; gap: 4px; padding: 6px 0; }
 .typing-indicator span { width: 5px; height: 5px; border-radius: 50%; background: #999ba6; animation: pulse 1s infinite alternate; }
@@ -168,6 +175,7 @@ h1 span { color: #747581; }
 .attachment-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-chip button { border: 0; background: transparent; color: #999aa6; cursor: pointer; font-size: 15px; line-height: 1; }
 .attachment-chip button:hover { color: #ff9a9a; }
+.link-chip { border-color: #44512c; background: #1d2115; }
 .message-image { display: block; max-width: min(100%, 480px); max-height: 420px; margin-top: 9px; border: 1px solid #383943; border-radius: 8px; object-fit: contain; }
 .composer-bottom { display: flex; align-items: center; justify-content: space-between; }
 .composer-hint { color: #737582; font: 9px var(--mono); }
