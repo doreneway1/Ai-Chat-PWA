@@ -1,4 +1,4 @@
-# Orbit AI Chat PWA
+# dorenewAI PWA
 
 Chat AI berbasis web dengan beberapa koneksi OpenAI-compatible, pemilihan model lokal berdasarkan tingkat tugas, lampiran, dan riwayat yang tersimpan di browser. PWA statis ini memakai Cloudflare Worker sebagai relay HTTPS/CORS; tidak memerlukan VPS.
 
@@ -31,7 +31,11 @@ Prompt sistem meminta jawaban lugas, menghindari penolakan yang tidak perlu, dan
 
 ## Blok kode dan perintah
 
-Jika model mengembalikan fenced code block Markdown, misalnya ` ```yaml `, ` ```json `, ` ```bash `, atau ` ```powershell `, client menampilkannya dalam panel berlabel bahasa dengan tombol **Salin** dan **Edit**. Edit mengubah blok tersebut di jawaban dan menyimpan perubahan pada riwayat lokal. Tombol salin hanya menyalin teks; aplikasi tidak menjalankan perintah terminal.
+Jawaban Markdown ditampilkan sebagai paragraf, judul, daftar, tabel, tautan, teks tebal, dan inline code agar tidak terlihat seperti simbol mentah. Jika model mengembalikan fenced code block Markdown, misalnya ` ```yaml `, ` ```json `, ` ```bash `, atau ` ```powershell `, client menampilkannya dengan pewarnaan sintaks serta tombol **Salin** dan **Edit**. Edit mengubah blok tersebut di jawaban dan menyimpan perubahan pada riwayat lokal. Tombol salin hanya menyalin teks; aplikasi tidak menjalankan perintah terminal.
+
+## iPhone dan penyimpanan
+
+Ukuran font kotak chat dan input pengaturan minimal 16 px pada layar ponsel agar Safari tidak memperbesar tampilan otomatis saat kolom disentuh. Jawaban baru diposisikan dari awal jawaban, bukan langsung ke ujung; percakapan yang dibuka kembali juga mulai dari bagian atas.
 
 ## Lampiran dan riwayat
 
@@ -40,6 +44,7 @@ Jika model mengembalikan fenced code block Markdown, misalnya ` ```yaml `, ` ```
 - XLSX/PPTX/DOCX diproses di perangkat. Isi yang diekstrak, prompt, dan gambar dikirim ke Worker lalu ke provider saat chat dikirim. Dukungan gambar juga bergantung pada provider/model.
 - API key, Base URL, dan pengaturan provider tersimpan di `localStorage` browser.
 - Riwayat chat tersimpan di `IndexedDB` browser. Foto disimpan bersama pesan sebagai data URL/base64; file teks dan dokumen yang dilampirkan disimpan sebagai teks hasil ekstraksi. Artinya foto dan riwayat memang memakai ruang penyimpanan komputer/ponsel ini. Ukurannya bergantung pada panjang chat dan lampiran; data lokal browser juga tunduk pada kuota browser/perangkat.
+- Nama internal penyimpanan lama tetap dipertahankan agar pembaruan brand ke dorenewAI tidak menghapus riwayat, key, atau pengaturan yang sudah tersimpan.
 - Hapus chat dari daftar percakapan untuk menghapus pesannya beserta lampiran lokalnya. **Clear site data / Hapus data situs** di pengaturan browser menghapus seluruh riwayat serta pengaturan/key situs pada browser itu. Data tidak disinkronkan antarperangkat.
 - Penyimpanan browser tidak dienkripsi oleh aplikasi. Lindungi perangkat/profil browser dan jangan membagikan aksesnya. Saat chat dikirim, prompt, lampiran, dan API key diteruskan ke Worker dan provider yang dipilih; periksa aturan privasi kedua layanan.
 - Gaya respons dibuat lugas untuk permintaan aman. Aplikasi tidak dapat menjamin semua output tanpa batasan atau menonaktifkan kebijakan provider.

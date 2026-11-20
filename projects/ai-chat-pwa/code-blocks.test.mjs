@@ -6,7 +6,7 @@ test('splits prose and labeled YAML, JSON, and shell code blocks', () => {
   const content = [
     'Contoh konfigurasi:',
     '```yaml',
-    'name: orbit',
+    'name: dorenewAI',
     '```',
     'Perintah:',
     '```bash',
@@ -15,7 +15,7 @@ test('splits prose and labeled YAML, JSON, and shell code blocks', () => {
   ].join('\n');
   const parts = splitCodeBlocks(content);
   assert.deepEqual(parts.filter(part => part.type === 'code').map(({ language, value }) => ({ language, value })), [
-    { language: 'yaml', value: 'name: orbit\n' },
+    { language: 'yaml', value: 'name: dorenewAI\n' },
     { language: 'bash', value: 'npm test\n' }
   ]);
   assert.equal(parts[0].type, 'text');

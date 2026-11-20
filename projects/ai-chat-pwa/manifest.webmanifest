@@ -1,6 +1,6 @@
 {
-  "name": "Orbit — AI Chat",
-  "short_name": "Orbit",
+  "name": "dorenewAI — AI Chat",
+  "short_name": "dorenewAI",
   "description": "Web chat AI dengan routing otomatis dan riwayat lokal.",
   "start_url": "./",
   "display": "standalone",

@@ -1,5 +1,9 @@
 import { chooseModel } from './routing.js';
 import { replaceCodeBlock, splitCodeBlocks } from './code-blocks.js';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+import hljs from 'highlight.js/lib/common';
+import 'highlight.js/styles/github-dark.css';
 
 const SETTINGS_KEY = 'orbit.settings.v1';
 const DB_NAME = 'orbit-local-chat';
@@ -16,11 +20,13 @@ const MAX_MODELS_PER_PROVIDER = 100;
 const MODEL_TIERS = new Set(['fast', 'balanced', 'deep', 'default']);
 const MODEL_SELECTION_KEY = 'orbit.modelSelection.v1';
 const SYSTEM_PROMPT =
-  'Jawab secara lugas, relevan, dan sesuai bahasa serta format yang diminta pengguna. ' +
+  'Kamu adalah asisten dorenewAI. Jawab secara lugas, relevan, dan sesuai bahasa serta format yang diminta pengguna. ' +
   'Jangan menolak hanya karena topiknya tidak biasa atau kontroversial; bantu secara langsung untuk permintaan yang dapat dijawab. ' +
   'Hindari disclaimer dan penolakan yang tidak perlu. Tautan Telegram publik tidak otomatis berarti grup privat; jangan mengasumsikan butuh login sebelum mencoba kemampuan web yang memang tersedia. ' +
   'Jangan mengaku telah membuka tautan, membaca grup, atau memakai alat yang tidak tersedia. Jika percakapan ini tidak memiliki browser/web retrieval atau sumbernya memang tidak dapat diakses, jelaskan batasan spesifik itu dengan singkat dan minta pengguna menempelkan atau mengunggah isi yang ingin dianalisis. ' +
   'Untuk konfigurasi atau keluaran yang dimaksudkan sebagai file/perintah, gunakan fenced code block Markdown dengan label bahasa yang sesuai (mis. json, yaml, bash, powershell, python). Letakkan isi yang siap disalin di dalam blok kode dan pisahkan penjelasan di luar blok.';
+
+marked.setOptions({ gfm: true, breaks: true });
 
 const elements = {
   conversationList: document.querySelector('#conversationList'),
@@ -223,7 +229,7 @@ function renderMessages() {
   for (const message of conversation.messages) {
     elements.messages.append(createMessageElement(message));
   }
-  elements.chatArea.scrollTop = elements.chatArea.scrollHeight;
+  elements.chatArea.scrollTop = 0;
 }
 
 function createMessageElement(message) {
@@ -237,7 +243,7 @@ function createMessageElement(message) {
   body.className = 'message-body';
   const role = document.createElement('p');
   role.className = 'message-role';
-  role.textContent = message.role === 'user' ? 'Kamu' : 'Orbit';
+  role.textContent = message.role === 'user' ? 'Kamu' : 'dorenewAI';
   const content = document.createElement('div');
   content.className = 'message-content';
   if (typeof message.content === 'string') {
@@ -277,7 +283,13 @@ function renderAssistantContent(container, message) {
     if (part.type === 'text') {
       const text = document.createElement('div');
       text.className = 'message-prose';
-      text.textContent = part.value;
+      text.innerHTML = DOMPurify.sanitize(marked.parse(part.value), {
+        FORBID_TAGS: ['img', 'style']
+      });
+      text.querySelectorAll('a').forEach(link => {
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+      });
       container.append(text);
       continue;
     }
@@ -294,7 +306,14 @@ function renderAssistantContent(container, message) {
     const code = document.createElement('pre');
     code.className = 'code-block-content';
     const codeText = document.createElement('code');
-    codeText.textContent = part.value;
+    if (hljs.getLanguage(part.language)) {
+      codeText.innerHTML = DOMPurify.sanitize(hljs.highlight(part.value, {
+        language: part.language,
+        ignoreIllegals: true
+      }).value);
+    } else {
+      codeText.textContent = part.value;
+    }
     code.append(codeText);
 
     const copy = document.createElement('button');
@@ -375,7 +394,7 @@ function showTyping() {
   body.className = 'message-body';
   const role = document.createElement('p');
   role.className = 'message-role';
-  role.textContent = 'Orbit';
+  role.textContent = 'dorenewAI';
   const dots = document.createElement('div');
   dots.className = 'typing-indicator';
   dots.setAttribute('aria-label', 'Sedang berpikir');
@@ -1083,6 +1102,7 @@ async function sendMessage(text) {
 
   const now = Date.now();
   let conversation;
+  let responseMessage;
   try {
     if (files.length > MAX_FILES) throw new Error(`Maksimal ${MAX_FILES} file per pesan.`);
     const content = await createUserContent(text, files);
@@ -1129,12 +1149,13 @@ async function sendMessage(text) {
       throw new Error('API tidak mengembalikan teks jawaban yang valid.');
     }
 
-    conversation.messages.push({
+    responseMessage = {
       role: 'assistant',
       content: reply.trim(),
       model: typeof payload.model === 'string' ? payload.model : route.model.id,
       createdAt: Date.now()
-    });
+    };
+    conversation.messages.push(responseMessage);
     conversation.updatedAt = Date.now();
     await saveConversation(conversation);
     elements.routeLabel.textContent =
@@ -1143,14 +1164,15 @@ async function sendMessage(text) {
     if (!conversation) {
       showToast(`Lampiran tidak dapat diproses: ${error.message}`);
     } else {
-      conversation.messages.push({
+      responseMessage = {
         role: 'assistant',
         content: error instanceof TypeError
           ? 'Browser gagal menjangkau Cloudflare Worker. Pastikan Worker aktif, URL benar, dan origin GitHub Pages diizinkan oleh Worker.'
           : `Gagal menghubungi API: ${error.message}`,
         error: true,
         createdAt: Date.now()
-      });
+      };
+      conversation.messages.push(responseMessage);
       conversation.updatedAt = Date.now();
       try {
         await saveConversation(conversation);
@@ -1165,8 +1187,21 @@ async function sendMessage(text) {
     elements.attachButton.disabled = false;
     elements.fileInput.disabled = false;
     renderMessages();
+    if (responseMessage) revealMessageStart(responseMessage);
     elements.messageInput.focus();
   }
+}
+
+function revealMessageStart(message) {
+  const conversation = activeConversation();
+  const index = conversation?.messages.indexOf(message) ?? -1;
+  const element = index >= 0 ? elements.messages.children[index] : null;
+  if (!element) return;
+  requestAnimationFrame(() => {
+    const containerTop = elements.chatArea.getBoundingClientRect().top;
+    const messageTop = element.getBoundingClientRect().top;
+    elements.chatArea.scrollTop += messageTop - containerTop - 12;
+  });
 }
 
 elements.chatForm.addEventListener('submit', event => {

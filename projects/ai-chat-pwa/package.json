@@ -1,15 +1,18 @@
 {
-  "name": "orbit-ai-chat-pwa",
+  "name": "dorenewai-chat-pwa",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "test": "node --test cloudflare/*.test.mjs routing.test.mjs code-blocks.test.mjs"
+    "test": "node --test cloudflare/*.test.mjs routing.test.mjs code-blocks.test.mjs markdown.test.mjs"
   },
   "dependencies": {
+    "dompurify": "^3.4.18",
     "fflate": "^0.8.2",
+    "highlight.js": "^11.12.0",
     "mammoth": "^1.9.0",
+    "marked": "^18.2.1",
     "pdfjs-dist": "^4.10.38"
   },
   "devDependencies": {
