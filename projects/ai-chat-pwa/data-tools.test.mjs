@@ -4,7 +4,8 @@ import {
   buildBackup,
   extractGeneratedImages,
   normalizeCustomTemplates,
-  parseBackup
+  parseBackup,
+  planStorageRestore
 } from './data-tools.js';
 import { decryptSecret, encryptSecret, isVaultCiphertext } from './vault.js';
 
@@ -36,4 +37,30 @@ test('vault mengenkripsi dan membuka secret dengan PIN yang benar saja', async (
   assert.equal(cipher.includes('sk-rahasia'), false);
   assert.equal(await decryptSecret(cipher, '123456'), 'sk-rahasia-123');
   await assert.rejects(() => decryptSecret(cipher, '654321'), /PIN salah/);
+});
+
+test('planStorageRestore hanya menulis key yang dikenal dan menghitung ukuran', () => {
+  const plan = planStorageRestore(
+    { 'orbit.settings.v1': '{"a":1}', 'lain.x': 'x', 'orbit.modelSelection.v1': 'auto' },
+    ['orbit.settings.v1', 'orbit.modelSelection.v1', 'orbit.aiLevel.v1']
+  );
+  assert.deepEqual(Object.keys(plan.toWrite).sort(), ['orbit.modelSelection.v1', 'orbit.settings.v1']);
+  assert.deepEqual(plan.toRemove, ['orbit.aiLevel.v1']);
+  assert.equal(plan.totalBytes, 'orbit.settings.v1'.length + '{"a":1}'.length + 'orbit.modelSelection.v1'.length + 'auto'.length);
+});
+
+test('parseBackup memberi judul default pada percakapan tanpa judul', () => {
+  const parsed = parseBackup(buildBackup({
+    storage: {},
+    conversations: [
+      { id: 'c1', messages: [] },
+      { id: 'c2', title: '  ', messages: [] },
+      { id: 'c3', title: 'Asli', messages: [] }
+    ]
+  }));
+  assert.deepEqual(parsed.conversations.map(item => item.title), ['Percakapan', 'Percakapan', 'Asli']);
+});
+
+test('decryptSecret menolak ciphertext brankas yang bagiannya kosong', async () => {
+  await assert.rejects(() => decryptSecret('vault:v1:c2FsdA==:aXY=:', '123456'), /Format brankas/);
 });
