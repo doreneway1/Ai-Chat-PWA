@@ -1,0 +1,12 @@
+# Deploy dengan Wrangler CLI (opsional; cara utama adalah tempel kode
+# di dashboard Cloudflare). Secrets tetap diisi lewat dashboard atau
+# `wrangler secret put <NAMA>` — jangan tulis kredensial di file ini.
+
+name = "wa-bot"
+main = "wa-bot-worker.mjs"
+compatibility_date = "2026-11-21"
+
+# Variabel non-rahasia (opsional, bisa juga diisi di dashboard):
+# [vars]
+# AI_BASE_URL = "https://ai.ipeenk.com/v1"
+# AI_MODEL = "gpt-4o-mini"
