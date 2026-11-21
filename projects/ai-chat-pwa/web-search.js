@@ -1,18 +1,25 @@
 export const MAX_SEARCH_SOURCES = 5;
 export const MAX_SEARCH_CONTEXT_CHARS = 20_000;
 
-export async function fetchWebSearch(proxyUrl, query, apiKey, searchApiKey, fetchImpl = fetch) {
+export async function fetchWebSearch(proxyUrl, query, apiKey, searchApiKey, fetchImpl = fetch, signal) {
   const base = typeof proxyUrl === 'string' ? proxyUrl.replace(/\/+$/, '') : '';
   if (!base) throw new Error('URL Cloudflare Worker belum diatur.');
   if (!searchApiKey?.trim()) throw new Error('Brave Search API key belum diatur di Pengaturan API.');
-  const response = await fetchImpl(`${base}/api/search`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({ query: String(query || '').slice(0, 500), count: MAX_SEARCH_SOURCES, searchApiKey })
-  });
+  let response;
+  try {
+    response = await fetchImpl(`${base}/api/search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({ query: String(query || '').slice(0, 500), count: MAX_SEARCH_SOURCES, searchApiKey }),
+      signal
+    });
+  } catch (error) {
+    if (error?.name === 'TimeoutError') throw new Error('Worker tidak merespons dalam 30 detik saat mencari di web.');
+    throw error;
+  }
   let payload = null;
   try {
     payload = await response.json();
