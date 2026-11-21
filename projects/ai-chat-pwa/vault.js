@@ -18,6 +18,8 @@ export function isVaultCiphertext(value) {
 
 async function deriveVaultKey(pin, salt, cryptoImpl = globalThis.crypto) {
   if (!cryptoImpl?.subtle) throw new Error('Browser ini tidak mendukung WebCrypto.');
+  // Batas 6 karakter dipertahankan agar brankas lama dengan PIN 6-7 karakter
+  // tetap bisa dibuka; PIN baru minimal 8 karakter ditegakkan di handleVaultButton.
   if (typeof pin !== 'string' || pin.length < 6) throw new Error('PIN brankas minimal 6 karakter.');
   const material = await cryptoImpl.subtle.importKey(
     'raw',
@@ -50,10 +52,8 @@ export async function encryptSecret(plaintext, pin, cryptoImpl = globalThis.cryp
 
 export async function decryptSecret(ciphertext, pin, cryptoImpl = globalThis.crypto) {
   if (!isVaultCiphertext(ciphertext)) return ciphertext;
-  const [, saltPart, ivPart, cipherPart] = ciphertext.split(':');
-  // Prefix memakai vault:v1: sehingga split menghasilkan segmen kosong pertama dari skema versi.
   const parts = ciphertext.slice(VAULT_PREFIX.length).split(':');
-  if (parts.length !== 3 || !saltPart || !ivPart || !cipherPart) {
+  if (parts.length !== 3 || parts.some(part => !part)) {
     throw new Error('Format brankas API key tidak valid.');
   }
   try {
