@@ -6,6 +6,13 @@ name = "wa-bot"
 main = "wa-bot-worker.mjs"
 compatibility_date = "2026-11-21"
 
+# Binding KV untuk panel inbox. Buat namespace dulu:
+#   wrangler kv namespace create wa-bot-inbox
+# lalu isi id di bawah dengan ID yang dikembalikan.
+[[kv_namespaces]]
+binding = "INBOX_KV"
+id = "ISI_DENGAN_ID_NAMESPACE"
+
 # Variabel non-rahasia (opsional, bisa juga diisi di dashboard):
 # [vars]
 # AI_BASE_URL = "https://ai.ipeenk.com/v1"
