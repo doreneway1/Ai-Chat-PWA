@@ -1,8 +1,11 @@
 # Panduan Setup Bot Auto-Reply WhatsApp (Cloud API + Cloudflare Worker)
 
 Bot ini membalas pesan WhatsApp yang masuk ke nomor bisnismu secara otomatis
-pakai AI. Tidak butuh VPS dan tidak ada langganan: Cloudflare Worker punya
-paket gratis, dan Meta memberi 1.000 balasan gratis per nomor per bulan.
+pakai AI, lengkap dengan panel inbox sendiri untuk melihat percakapan dan
+membalas manual. Tidak butuh VPS dan tidak ada langganan: Cloudflare Worker
+punya paket gratis, dan Meta memberi 1.000 balasan gratis per nomor per bulan.
+Proyek ini memakai jalur API-only + panel sendiri, tanpa aplikasi WhatsApp
+Business.
 
 > ⚠️ **PENTING — pilih jalur yang benar sebelum mulai**
 >
@@ -121,11 +124,23 @@ sensitif):
 | `AI_API_KEY` | API key provider AI-mu | Secret |
 | `AI_BASE_URL` | Base URL provider AI, misal `https://ai.ipeenk.com/v1` | Text |
 | `AI_MODEL` | Nama model, misal `gpt-4o-mini` | Text |
+| `PANEL_PASSWORD` | Password login panel (username: `admin`) | Secret |
 | `SYSTEM_PROMPT` | (Opsional) Kepribadian bot | Text |
 | `BOT_NAME` | (Opsional) Nama bot | Text |
 
 Setelah semua terisi, klik **Deploy** lagi supaya Worker memakai
 nilai terbaru.
+
+### Pasang KV untuk panel inbox
+
+Panel menyimpan pesan di KV Cloudflare. Tanpa ini bot tetap membalas,
+tapi pesan tidak disimpan dan panel kosong.
+
+1. Di dashboard Cloudflare, buka **Workers & Pages → KV** → **Create
+   namespace**, beri nama misal `wa-bot-inbox`.
+2. Buka Worker `wa-bot` → **Settings → Bindings** → **Add binding** →
+   pilih **KV Namespace** → **Variable name**: `INBOX_KV` → pilih
+   namespace `wa-bot-inbox` → **Deploy**.
 
 > Jangan pernah menempel token atau API key di chat, di kode, atau di
 > GitHub. Semua kredensial hanya lewat Secrets di dashboard Cloudflare.
@@ -150,6 +165,18 @@ nilai terbaru.
 3. Kalau tidak ada balasan, buka dashboard Cloudflare → Worker `wa-bot`
    → **Logs** → **Begin log stream**, kirim pesan lagi, dan lihat
    pesan error-nya.
+
+## Memakai panel inbox
+
+1. Buka `https://wa-bot.<subdomain-kamu>.workers.dev/panel`.
+2. Login: username `admin`, password = `PANEL_PASSWORD` yang kamu isi
+   di secrets.
+3. Daftar percakapan di kiri, isi chat di kanan. Panel me-refresh
+   otomatis tiap 5 detik.
+4. Untuk membalas manual, ketik di kolom bawah lalu kirim.
+5. Tombol **Jeda bot** di tiap percakapan: bot berhenti membalas nomor
+   itu (pesan tetap tersimpan dan terlihat di panel), supaya kamu yang
+   pegang percakapannya. Klik lagi untuk mengaktifkan bot kembali.
 
 ## Batas dan biaya
 
@@ -179,9 +206,12 @@ nilai terbaru.
 
 ## Pengembangan selanjutnya (kalau mau)
 
-- Ingatan percakapan per pengirim (pakai KV atau Durable Object).
+- Ingatan percakapan per pengirim (pakai KV atau Durable Object) supaya
+  bot nyambung dengan chat sebelumnya.
 - Membalas gambar/suara (baca media lewat Cloud API, kirim ke AI
   yang mendukung vision/audio).
 - Perintah khusus, misal `!menu`, `!harga`, `!manusia` untuk
   meneruskan ke admin.
-- Daftar blokir nomor dan jam operasional bot.
+- Pencarian percakapan dan ekspor riwayat chat dari panel.
+- Notifikasi (misal ke Telegram atau email) saat ada pesan baru yang
+  belum dibalas.
