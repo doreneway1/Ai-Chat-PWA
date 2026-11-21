@@ -55,17 +55,24 @@ export function extractUrls(text) {
   return urls;
 }
 
-export async function fetchLinkContext(proxyUrl, url, apiKey, fetchImpl = fetch) {
+export async function fetchLinkContext(proxyUrl, url, apiKey, fetchImpl = fetch, signal) {
   const base = typeof proxyUrl === 'string' ? proxyUrl.replace(/\/+$/, '') : '';
   if (!base) throw new Error('URL Cloudflare Worker belum diatur.');
-  const response = await fetchImpl(`${base}/api/scrape`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({ url })
-  });
+  let response;
+  try {
+    response = await fetchImpl(`${base}/api/scrape`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({ url }),
+      signal
+    });
+  } catch (error) {
+    if (error?.name === 'TimeoutError') throw new Error('Worker tidak merespons dalam 30 detik saat membaca tautan.');
+    throw error;
+  }
   let payload = null;
   try {
     payload = await response.json();
