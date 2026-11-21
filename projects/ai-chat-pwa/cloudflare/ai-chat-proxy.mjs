@@ -410,7 +410,9 @@ async function searchWeb(body, fetchImpl) {
   endpoint.searchParams.set('q', query);
   endpoint.searchParams.set('count', String(count));
   endpoint.searchParams.set('safesearch', 'moderate');
-  endpoint.searchParams.set('search_lang', 'id');
+  // Brave's search_lang enum has no 'id' (Indonesian) and rejects it with HTTP 422;
+  // country 'ID' is supported and localizes results instead.
+  endpoint.searchParams.set('country', 'ID');
   let upstream;
   try {
     upstream = await fetchImpl(endpoint, {
