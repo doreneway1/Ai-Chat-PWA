@@ -50,12 +50,29 @@ export function parseBackup(value) {
       throw new Error('Backup memuat percakapan yang rusak.');
     }
   }
+  const conversations = backup.conversations.map(conversation => ({
+    ...conversation,
+    title: typeof conversation.title === 'string' && conversation.title.trim()
+      ? conversation.title
+      : 'Percakapan'
+  }));
   const storage = {};
   for (const [key, entry] of Object.entries(backup.storage)) {
     if (typeof key !== 'string' || !key.startsWith('orbit.')) continue;
     if (typeof entry === 'string') storage[key] = entry;
   }
-  return { ...backup, storage, conversations: backup.conversations };
+  return { ...backup, storage, conversations };
+}
+
+export function planStorageRestore(backupStorage, storageKeys) {
+  const toWrite = {};
+  for (const [key, value] of Object.entries(backupStorage || {})) {
+    if (storageKeys.includes(key) && typeof value === 'string') toWrite[key] = value;
+  }
+  const toRemove = storageKeys.filter(key => !(key in toWrite));
+  const totalBytes = Object.entries(toWrite)
+    .reduce((sum, [key, value]) => sum + key.length + value.length, 0);
+  return { toWrite, toRemove, totalBytes };
 }
 
 export function extractGeneratedImages(payload) {
