@@ -31,3 +31,15 @@ test('readChatResponse melempar detail error provider', async () => {
   });
   await assert.rejects(() => readChatResponse(response), /429: kuota habis/);
 });
+
+test('createSseParser melempar detail error dari event SSE', () => {
+  const parser = createSseParser();
+  assert.throws(() => parser.push('data: {"error":{"message":"kuota habis"}}\n\n'), /kuota habis/);
+});
+
+test('readChatResponse melempar error JSON non-stream meski status 200', async () => {
+  const response = new Response(JSON.stringify({ error: { message: 'model tidak tersedia' } }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+  await assert.rejects(() => readChatResponse(response), /model tidak tersedia/);
+});
