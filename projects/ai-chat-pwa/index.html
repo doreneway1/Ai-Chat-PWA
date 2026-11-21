@@ -7,15 +7,23 @@
     <meta name="description" content="dorenewAI — ruang chat AI pribadi dengan pemilihan model otomatis dan riwayat lokal.">
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" href="./icon.svg" type="image/svg+xml">
+    <link rel="icon" href="./icons/favicon-32.png" sizes="32x32" type="image/png">
+    <link rel="icon" href="./icons/favicon-16.png" sizes="16x16" type="image/png">
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="dorenewAI">
     <link rel="stylesheet" href="./styles.css">
     <title>dorenewAI — AI Chat</title>
   </head>
   <body>
+    <a class="skip-link" href="#messages">Lewati ke percakapan</a>
     <div class="app-shell">
       <aside class="sidebar" id="sidebar">
         <div class="sidebar-top">
           <a class="brand" href="./" aria-label="dorenewAI AI Chat">
-            <span class="brand-mark" aria-hidden="true">✳</span>
+            <img class="brand-mark" src="./icon.svg" alt="" aria-hidden="true">
             <span class="brand-name">dorenewAI</span>
           </a>
           <button class="icon-button mobile-close" id="closeSidebar" type="button" aria-label="Tutup daftar chat">×</button>
@@ -35,6 +43,7 @@
             <button class="text-button" id="importBackup" type="button">⬆ Pulihkan</button>
             <input id="backupInput" type="file" accept="application/json,.json" hidden>
           </div>
+          <button class="text-button" id="installApp" type="button" hidden>⬇ Install aplikasi</button>
           <button class="settings-link" id="openSettings" type="button">
             <span aria-hidden="true">⚙</span> Pengaturan API
           </button>
@@ -59,7 +68,7 @@
 
         <section class="chat-area" aria-label="Percakapan">
           <div class="welcome" id="welcome">
-            <div class="welcome-symbol" aria-hidden="true">✳</div>
+            <div class="welcome-symbol" aria-hidden="true"><img src="./icon.svg" alt=""></div>
             <p class="eyebrow">RUANG PIKIR PRIBADIMU</p>
             <h1>Mulai dari<br><span>apa saja.</span></h1>
             <p class="welcome-copy">Tanyakan, buat, telusuri. Model dipilih oleh endpoint auto yang kamu hubungkan.</p>
@@ -69,7 +78,7 @@
               <button type="button" class="suggestion" data-prompt="Bantu saya menulis dan menyempurnakan sebuah draft">↗ <span>Tulis dan sempurnakan draft</span></button>
             </div>
           </div>
-          <div class="messages" id="messages" aria-live="polite"></div>
+          <div class="messages" id="messages" aria-live="polite" tabindex="-1"></div>
         </section>
 
         <div class="composer-wrap">
@@ -81,7 +90,7 @@
             <div class="composer-bottom">
               <div class="composer-tools">
                 <button class="attach-button" id="attachButton" type="button" aria-label="Lampirkan file">＋</button>
-                <input id="fileInput" type="file" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.yaml,.yml,.toml,.ini,.log,.html,.htm,.css,.js,.mjs,.cjs,.ts,.jsx,.tsx,.vue,.svelte,.py,.ipynb,.java,.kt,.kts,.cs,.c,.h,.hpp,.cpp,.go,.rs,.rb,.php,.swift,.sh,.bash,.ps1,.sql,.tf,.properties,.gradle,.r,.lua,.pl,.dockerfile,.env,.pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx,.pptx">
+                <input id="fileInput" type="file" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.xml,.yaml,.yml,.toml,.ini,.log,.html,.htm,.css,.js,.mjs,.cjs,.ts,.jsx,.tsx,.vue,.svelte,.py,.ipynb,.java,.kt,.kts,.cs,.c,.h,.hpp,.cpp,.go,.rs,.rb,.php,.swift,.sh,.bash,.ps1,.sql,.tf,.properties,.gradle,.r,.lua,.pl,.dockerfile,.pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx,.pptx">
                 <div class="level-picker" id="levelPicker">
                   <button class="tool-icon-button" id="levelButton" type="button" aria-label="Tingkat pemikiran AI: Auto" aria-expanded="false" aria-controls="levelMenu">
                     <span aria-hidden="true">◉</span>
