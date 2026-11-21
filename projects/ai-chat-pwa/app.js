@@ -115,9 +115,9 @@ const elements = {
   attachmentList: document.querySelector('#attachmentList'),
   linkList: document.querySelector('#linkList'),
   modelSelect: document.querySelector('#modelSelect'),
-  levelPicker: document.querySelector('#levelPicker'),
-  levelButton: document.querySelector('#levelButton'),
-  levelMenu: document.querySelector('#levelMenu'),
+  composerMenuWrap: document.querySelector('#composerMenuWrap'),
+  composerMenuButton: document.querySelector('#composerMenuButton'),
+  composerMenu: document.querySelector('#composerMenu'),
   openConversationSettings: document.querySelector('#openConversationSettings'),
   conversationSettingsDialog: document.querySelector('#conversationSettingsDialog'),
   conversationSettingsForm: document.querySelector('#conversationSettingsForm'),
@@ -1606,13 +1606,20 @@ async function openSettings() {
 }
 
 function updateLevelPicker() {
-  const labels = { auto: 'Auto', fast: 'Cepat', balanced: 'Menengah', deep: 'Mendalam' };
-  const label = labels[aiLevel] || labels.auto;
-  elements.levelButton.setAttribute('aria-label', `Tingkat pemikiran AI: ${label}`);
-  elements.levelButton.title = `Tingkat pemikiran: ${label}`;
-  elements.levelMenu.querySelectorAll('[data-level]').forEach(option => {
+  elements.composerMenu.querySelectorAll('[data-level]').forEach(option => {
     option.setAttribute('aria-checked', String(option.dataset.level === aiLevel));
   });
+}
+
+function closeComposerMenu() {
+  if (elements.composerMenu.hidden) return;
+  elements.composerMenu.hidden = true;
+  elements.composerMenuButton.setAttribute('aria-expanded', 'false');
+}
+
+function setComposerMenuOpen(open) {
+  elements.composerMenu.hidden = !open;
+  elements.composerMenuButton.setAttribute('aria-expanded', String(open));
 }
 
 function openConversationSettings() {
@@ -1874,12 +1881,17 @@ function updateContextMeter() {
   elements.contextMeter.textContent = `Konteks ±${estimate.tokens.toLocaleString('id-ID')} token`;
 }
 
+const SEND_ARROW_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+const STOP_SQUARE_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
 function setSendingUi(active) {
   sending = active;
   elements.sendButton.disabled = false;
   elements.sendButton.setAttribute('aria-label', active ? 'Hentikan jawaban' : 'Kirim pesan');
   elements.sendButton.title = active ? 'Hentikan jawaban' : 'Kirim pesan';
-  elements.sendIcon.textContent = active ? '■' : '↑';
+  elements.sendIcon.innerHTML = active ? STOP_SQUARE_SVG : SEND_ARROW_SVG;
+  elements.composerMenuButton.disabled = active;
+  if (active) closeComposerMenu();
   elements.attachButton.disabled = active;
   elements.fileInput.disabled = active;
   elements.webSearchToggle.disabled = active;
@@ -2875,13 +2887,14 @@ elements.vaultButton.addEventListener('click', () => void handleVaultButton());
 document.querySelector('#newChat').addEventListener('click', createConversation);
 document.querySelector('#openSettings').addEventListener('click', openSettings);
 document.querySelector('#openSettingsTop').addEventListener('click', openSettings);
-elements.levelButton.addEventListener('click', event => {
+elements.composerMenuButton.addEventListener('click', event => {
   event.stopPropagation();
-  const shouldOpen = elements.levelMenu.hidden;
-  elements.levelMenu.hidden = !shouldOpen;
-  elements.levelButton.setAttribute('aria-expanded', String(shouldOpen));
+  setComposerMenuOpen(elements.composerMenu.hidden);
+  if (!elements.composerMenu.hidden) {
+    elements.composerMenu.querySelector('button')?.focus();
+  }
 });
-elements.levelMenu.querySelectorAll('[data-level]').forEach(option => {
+elements.composerMenu.querySelectorAll('[data-level]').forEach(option => {
   option.addEventListener('click', () => {
     aiLevel = option.dataset.level;
     try {
@@ -2890,12 +2903,16 @@ elements.levelMenu.querySelectorAll('[data-level]').forEach(option => {
       showToast(`Tingkat pemikiran tidak tersimpan: ${error.message}`);
     }
     updateLevelPicker();
-    elements.levelMenu.hidden = true;
-    elements.levelButton.setAttribute('aria-expanded', 'false');
+    closeComposerMenu();
   });
 });
-elements.levelMenu.addEventListener('keydown', event => {
-  const options = [...elements.levelMenu.querySelectorAll('[data-level]')];
+// Tutup menu setelah memilih item apa pun; tiap item tetap menjalankan
+// listener-nya sendiri (lampirkan, suara, template, bandingkan, pengaturan).
+elements.composerMenu.addEventListener('click', event => {
+  if (event.target.closest('button')) closeComposerMenu();
+});
+elements.composerMenu.addEventListener('keydown', event => {
+  const options = [...elements.composerMenu.querySelectorAll('button:not([disabled])')];
   const current = options.indexOf(document.activeElement);
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault();
@@ -2904,9 +2921,8 @@ elements.levelMenu.addEventListener('keydown', event => {
       : (current - 1 + options.length) % options.length;
     options[next].focus();
   } else if (event.key === 'Escape') {
-    elements.levelMenu.hidden = true;
-    elements.levelButton.setAttribute('aria-expanded', 'false');
-    elements.levelButton.focus();
+    closeComposerMenu();
+    elements.composerMenuButton.focus();
   }
 });
 elements.openConversationSettings.addEventListener('click', openConversationSettings);
@@ -2964,9 +2980,8 @@ document.querySelector('#openSidebar').addEventListener('click', () => {
 document.querySelector('#closeSidebar').addEventListener('click', closeSidebar);
 elements.sidebarBackdrop.addEventListener('click', closeSidebar);
 document.addEventListener('click', event => {
-  if (!elements.levelPicker.contains(event.target) && !elements.levelMenu.hidden) {
-    elements.levelMenu.hidden = true;
-    elements.levelButton.setAttribute('aria-expanded', 'false');
+  if (!elements.composerMenuWrap.contains(event.target)) {
+    closeComposerMenu();
   }
   if (!event.target.closest('.conversation-menu-wrap')) {
     elements.conversationList.querySelectorAll('.conversation-menu').forEach(menu => {
@@ -3017,10 +3032,7 @@ document.addEventListener('keydown', event => {
   }
   if (event.key === 'Escape') {
     closeSidebar();
-    if (!elements.levelMenu.hidden) {
-      elements.levelMenu.hidden = true;
-      elements.levelButton.setAttribute('aria-expanded', 'false');
-    }
+    closeComposerMenu();
     elements.conversationList.querySelectorAll('.conversation-menu').forEach(menu => {
       menu.hidden = true;
       menu.previousElementSibling.setAttribute('aria-expanded', 'false');
