@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handleRequest } from './ai-chat-proxy.mjs';
+import { __clearRateLimitBucketsForTests, handleRequest } from './ai-chat-proxy.mjs';
 
 const origin = 'https://doreneway1.github.io';
 const authorization = 'Bearer test-api-key-123456';
@@ -12,6 +12,8 @@ function makeRequest(path, { method = 'POST', headers = {}, body } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body)
   });
 }
+
+test.beforeEach(() => __clearRateLimitBucketsForTests());
 
 test('answers an allowed browser preflight without contacting the provider', async () => {
   const response = await handleRequest(makeRequest('/api/chat/completions', {
@@ -368,4 +370,48 @@ test('extracts Telegram channel posts from widget message blocks', async () => {
   const payload = await response.json();
   assert.match(payload.text, /Postingan 2026-11-20/);
   assert.match(payload.text, /Pengumuman penting\nBaris kedua/);
+});
+
+test('clamps out-of-range temperature instead of forwarding it', async () => {
+  let sent;
+  const fetchImpl = async (url, init) => {
+    sent = JSON.parse(init.body);
+    return Response.json({ choices: [{ message: { content: 'ok' } }] });
+  };
+  const response = await handleRequest(makeRequest('/api/chat/completions', {
+    headers: { Authorization: authorization },
+    body: {
+      baseUrl: 'https://ai.ipeenk.com/v1',
+      model: 'qwen3-max',
+      messages: [{ role: 'user', content: 'Halo' }],
+      temperature: 9
+    }
+  }), fetchImpl);
+  assert.equal(response.status, 200);
+  assert.equal(sent.temperature, 2);
+});
+
+test('limits oversized provider test responses', async () => {
+  const fetchImpl = async () => new Response('x'.repeat(1_000_001), { headers: { 'Content-Type': 'application/json' } });
+  const response = await handleRequest(makeRequest('/api/test', {
+    headers: { Authorization: authorization },
+    body: { baseUrl: 'https://ai.ipeenk.com/v1', model: 'qwen3-max' }
+  }), fetchImpl);
+  assert.equal(response.status, 502);
+  assert.match((await response.json()).error, /terlalu besar/);
+});
+
+test('rate limit membatasi 120 permintaan per menit per IP', async () => {
+  const fetchImpl = async () => Response.json({ data: [] });
+  const makeRateRequest = () => makeRequest('/api/models', {
+    headers: { Authorization: authorization, 'CF-Connecting-IP': '203.0.113.7' },
+    body: { baseUrl: 'https://ai.ipeenk.com/v1' }
+  });
+  for (let i = 0; i < 120; i += 1) {
+    const response = await handleRequest(makeRateRequest(), fetchImpl);
+    assert.equal(response.status, 200);
+  }
+  const limited = await handleRequest(makeRateRequest(), fetchImpl);
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get('Retry-After'), '60');
 });
