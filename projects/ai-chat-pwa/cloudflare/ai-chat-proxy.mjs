@@ -9,7 +9,31 @@ const MAX_SCRAPE_BYTES = 2_000_000;
 const MAX_SCRAPE_TEXT_LENGTH = 20_000;
 const MAX_SCRAPE_REDIRECTS = 3;
 const SCRAPE_TIMEOUT_MS = 10_000;
+const SEARCH_TIMEOUT_MS = 15_000;
 const SCRAPE_CONTENT_TYPES = new Set(['text/html', 'application/xhtml+xml', 'text/plain']);
+
+const RATE_LIMIT_MAX_REQUESTS = 120;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const rateLimitBuckets = new Map();
+
+export function __clearRateLimitBucketsForTests() {
+  rateLimitBuckets.clear();
+}
+
+function isRateLimited(clientIp, now = Date.now()) {
+  const bucket = rateLimitBuckets.get(clientIp);
+  if (!bucket || now - bucket.startedAt >= RATE_LIMIT_WINDOW_MS) {
+    rateLimitBuckets.set(clientIp, { startedAt: now, count: 1 });
+    if (rateLimitBuckets.size > 1000) {
+      for (const [key, value] of rateLimitBuckets) {
+        if (now - value.startedAt >= RATE_LIMIT_WINDOW_MS) rateLimitBuckets.delete(key);
+      }
+    }
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > RATE_LIMIT_MAX_REQUESTS;
+}
 
 function corsHeaders(origin) {
   const headers = new Headers({
@@ -208,10 +232,15 @@ export function validateScrapeUrl(value) {
   return url;
 }
 
+function safeCodePoint(value) {
+  if (!Number.isInteger(value) || value < 0 || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) return '�';
+  return String.fromCodePoint(value);
+}
+
 function decodeHtmlEntities(text) {
   return text
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => safeCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => safeCodePoint(Number.parseInt(dec, 10)))
     .replace(/&nbsp;/gi, ' ')
     .replace(/&quot;/gi, '"')
     .replace(/&#0?39;|&apos;/gi, "'")
@@ -421,12 +450,20 @@ async function searchWeb(body, fetchImpl) {
         Accept: 'application/json',
         'Accept-Encoding': 'gzip',
         'X-Subscription-Token': apiKey
-      }
+      },
+      signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+        ? AbortSignal.timeout(SEARCH_TIMEOUT_MS)
+        : undefined
     });
-  } catch {
-    const error = new Error('Worker tidak dapat menjangkau Brave Search.');
-    error.status = 502;
-    throw error;
+  } catch (error) {
+    if (error?.name === 'TimeoutError') {
+      const timeoutError = new Error('Pencarian web di Brave melebihi batas 15 detik.');
+      timeoutError.status = 502;
+      throw timeoutError;
+    }
+    const unreachable = new Error('Worker tidak dapat menjangkau Brave Search.');
+    unreachable.status = 502;
+    throw unreachable;
   }
   const raw = await readLimitedBody(upstream, MAX_MODEL_RESPONSE_BYTES);
   if (raw === null) {
@@ -480,6 +517,13 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
   }
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method tidak diizinkan.' }, 405, headers);
+  }
+
+  const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (isRateLimited(clientIp)) {
+    const limitedHeaders = new Headers(headers);
+    limitedHeaders.set('Retry-After', '60');
+    return jsonResponse({ error: 'Terlalu banyak permintaan. Coba lagi dalam satu menit.' }, 429, limitedHeaders);
   }
 
   const authorization = request.headers.get('Authorization') || '';
@@ -594,7 +638,11 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
     : {
         model,
         messages,
-        temperature: requestUrl.pathname === '/api/test' ? 0 : body.temperature,
+        temperature: requestUrl.pathname === '/api/test'
+          ? 0
+          : typeof body.temperature === 'number' && Number.isFinite(body.temperature)
+            ? Math.min(2, Math.max(0, body.temperature))
+            : undefined,
         ...(wantsStream ? { stream: true } : {})
       };
   if (!isImageRequest) {
@@ -629,7 +677,10 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
   }
 
   if (requestUrl.pathname === '/api/test') {
-    const text = await upstream.text();
+    const text = await readLimitedBody(upstream, MAX_MODEL_RESPONSE_BYTES);
+    if (text === null) {
+      return jsonResponse({ error: 'Respons test dari provider terlalu besar.' }, 502, headers);
+    }
     let payload;
     try {
       payload = text ? JSON.parse(text) : null;
