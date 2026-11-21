@@ -255,6 +255,26 @@ export function extractPageContent(html, contentType = 'text/html') {
     decodeHtmlEntities((/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] || '').replace(/<[^>]+>/g, '')).trim();
   const description = readMetaContent(html, ['description', 'og:description', 'twitter:description']);
 
+  // Halaman pratinjau channel Telegram (t.me/s/...) memuat postingan sebagai
+  // blok tgme_widget_message_text. Ekstrak blok itu secara khusus agar hasil
+  // tidak tercampur label media, jumlah views, dan navigasi Telegram.
+  if (html.includes('tgme_widget_message_text')) {
+    const posts = [];
+    const textPattern = /<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+    let match;
+    while ((match = textPattern.exec(html)) !== null) {
+      const cleaned = normalizeExtractedText(decodeHtmlEntities(
+        match[1].replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ')
+      ));
+      if (!cleaned) continue;
+      const nearby = html.slice(match.index, match.index + 5000);
+      const datetime = /<time[^>]*datetime="([^"]+)"/i.exec(nearby)?.[1] || '';
+      posts.push(datetime ? `[Postingan ${datetime}]\n${cleaned}` : cleaned);
+      if (posts.length >= 30) break;
+    }
+    if (posts.length) return { title, description, text: posts.join('\n\n') };
+  }
+
   const mainMatch =
     /<article\b[^>]*>([\s\S]*?)<\/article>/i.exec(html) ||
     /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(html) ||
@@ -270,7 +290,7 @@ export function extractPageContent(html, contentType = 'text/html') {
   return { title, description, text: text || description };
 }
 
-async function scrapeUrl(value, fetchImpl) {
+async function scrapeSingleUrl(value, fetchImpl) {
   const target = validateScrapeUrl(value);
   let currentUrl = target;
   for (let hop = 0; hop <= MAX_SCRAPE_REDIRECTS; hop += 1) {
@@ -342,6 +362,96 @@ async function scrapeUrl(value, fetchImpl) {
   throw scrapeError('Halaman terlalu banyak mengalihkan request.', 502);
 }
 
+const TELEGRAM_RESERVED_PATHS = new Set([
+  's', 'joinchat', 'addstickers', 'addemoji', 'share', 'iv', 'login',
+  'setlanguage', 'proxy', 'socks', 'bg', 'boost', 'giftcode', 'wallet'
+]);
+
+export function telegramScrapeCandidates(url) {
+  if (!['t.me', 'www.t.me'].includes(url.hostname.toLowerCase())) return [url.toString()];
+  const segments = url.pathname.split('/').filter(Boolean);
+  if (segments.length !== 1) return [url.toString()];
+  const username = segments[0];
+  if (!/^[A-Za-z0-9_]{4,}$/.test(username) || TELEGRAM_RESERVED_PATHS.has(username.toLowerCase())) {
+    return [url.toString()];
+  }
+  // Untuk channel publik, /s/<username> memuat postingan terbaru; untuk grup,
+  // Telegram mengembalikan pratinjau yang sama, jadi urutan ini aman dicoba.
+  return [`https://t.me/s/${username}`, url.toString()];
+}
+
+async function scrapeUrl(value, fetchImpl) {
+  const target = validateScrapeUrl(value);
+  const candidates = telegramScrapeCandidates(target);
+  let lastError;
+  for (const candidate of candidates) {
+    try {
+      return await scrapeSingleUrl(candidate, fetchImpl);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || scrapeError('Halaman tidak dapat dibaca.', 502);
+}
+
+function validateSearchApiKey(value) {
+  if (typeof value !== 'string' || value.length < 10 || value.length > 300 || /\s/.test(value)) {
+    throw new Error('Brave Search API key tidak valid.');
+  }
+  return value;
+}
+
+async function searchWeb(body, fetchImpl) {
+  const query = typeof body?.query === 'string' ? body.query.trim().replace(/\s+/g, ' ') : '';
+  if (query.length < 2 || query.length > 500) throw new Error('Kueri pencarian harus 2 sampai 500 karakter.');
+  const count = Number.isInteger(body?.count) ? Math.min(10, Math.max(1, body.count)) : 5;
+  const apiKey = validateSearchApiKey(body?.searchApiKey);
+  const endpoint = new URL('https://api.search.brave.com/res/v1/web/search');
+  endpoint.searchParams.set('q', query);
+  endpoint.searchParams.set('count', String(count));
+  endpoint.searchParams.set('safesearch', 'moderate');
+  endpoint.searchParams.set('search_lang', 'id');
+  let upstream;
+  try {
+    upstream = await fetchImpl(endpoint, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'Accept-Encoding': 'gzip',
+        'X-Subscription-Token': apiKey
+      }
+    });
+  } catch {
+    const error = new Error('Worker tidak dapat menjangkau Brave Search.');
+    error.status = 502;
+    throw error;
+  }
+  const raw = await readLimitedBody(upstream, MAX_MODEL_RESPONSE_BYTES);
+  if (raw === null) {
+    const error = new Error('Hasil pencarian terlalu besar.');
+    error.status = 502;
+    throw error;
+  }
+  let payload = null;
+  try { payload = raw ? JSON.parse(raw) : null; } catch { payload = null; }
+  if (!upstream.ok) {
+    const detail = payload?.errors?.[0]?.detail || payload?.message || `Brave Search membalas HTTP ${upstream.status}.`;
+    const error = new Error(detail);
+    error.status = upstream.status === 401 || upstream.status === 403 ? 401 : 502;
+    throw error;
+  }
+  const results = (Array.isArray(payload?.web?.results) ? payload.web.results : [])
+    .map(result => ({
+      title: typeof result?.title === 'string' ? result.title.replace(/<[^>]+>/g, '').slice(0, 300) : '',
+      url: typeof result?.url === 'string' ? result.url.slice(0, 2048) : '',
+      description: typeof result?.description === 'string' ? result.description.replace(/<[^>]+>/g, '').slice(0, 1200) : '',
+      age: typeof result?.age === 'string' ? result.age.slice(0, 100) : ''
+    }))
+    .filter(result => result.url && (result.title || result.description))
+    .slice(0, count);
+  return { query, results, fetchedAt: Date.now() };
+}
+
 function errorMessage(error) {
   return error instanceof Error ? error.message : 'Request tidak valid.';
 }
@@ -353,7 +463,9 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
   const isApiRoute = requestUrl.pathname === '/api/test' ||
     requestUrl.pathname === '/api/chat/completions' ||
     requestUrl.pathname === '/api/models' ||
-    requestUrl.pathname === '/api/scrape';
+    requestUrl.pathname === '/api/scrape' ||
+    requestUrl.pathname === '/api/search' ||
+    requestUrl.pathname === '/api/images/generations';
 
   if (!ALLOWED_ORIGINS.has(origin)) {
     return jsonResponse({ error: 'Origin aplikasi tidak diizinkan.' }, 403, headers);
@@ -399,12 +511,32 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
     }
   }
 
+  if (requestUrl.pathname === '/api/search') {
+    try {
+      const result = await searchWeb(body, fetchImpl);
+      return jsonResponse(result, 200, headers);
+    } catch (error) {
+      const status = Number.isInteger(error?.status) ? error.status : 400;
+      return jsonResponse({ error: errorMessage(error) }, status, headers);
+    }
+  }
+
   let upstreamBase;
   let model;
   let messages;
+  let imagePrompt = '';
+  let imageSize = '1024x1024';
   try {
     upstreamBase = validateBaseUrl(body?.baseUrl, env);
     if (requestUrl.pathname !== '/api/models') model = validateModel(body?.model);
+    if (requestUrl.pathname === '/api/images/generations') {
+      imagePrompt = typeof body?.prompt === 'string' ? body.prompt.trim() : '';
+      if (!imagePrompt || imagePrompt.length > 4000) {
+        throw new Error('Prompt gambar harus 1 sampai 4000 karakter.');
+      }
+      const allowedSizes = new Set(['1024x1024', '1024x1792', '1792x1024', '512x512']);
+      imageSize = allowedSizes.has(body?.size) ? body.size : '1024x1024';
+    }
     messages = requestUrl.pathname === '/api/test'
       ? [{ role: 'user', content: 'Reply with OK only.' }]
       : requestUrl.pathname === '/api/chat/completions'
@@ -415,7 +547,11 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
   }
 
   const upstreamUrl = new URL(
-    requestUrl.pathname === '/api/models' ? 'models' : 'chat/completions',
+    requestUrl.pathname === '/api/models'
+      ? 'models'
+      : requestUrl.pathname === '/api/images/generations'
+        ? 'images/generations'
+        : 'chat/completions',
     `${upstreamBase.toString().replace(/\/+$/, '')}/`
   );
   if (requestUrl.pathname === '/api/models') {
@@ -449,14 +585,21 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
     return new Response(modelList, { status: upstream.status, headers: responseHeaders });
   }
 
-  const upstreamBody = {
-    model,
-    messages,
-    temperature: requestUrl.pathname === '/api/test' ? 0 : body.temperature
-  };
-  const maxTokens = requestUrl.pathname === '/api/test' ? 8 : body.max_tokens;
-  if (Number.isInteger(maxTokens) && maxTokens > 0 && maxTokens <= 4096) {
-    upstreamBody.max_tokens = maxTokens;
+  const isImageRequest = requestUrl.pathname === '/api/images/generations';
+  const wantsStream = !isImageRequest && requestUrl.pathname === '/api/chat/completions' && body.stream === true;
+  const upstreamBody = isImageRequest
+    ? { model, prompt: imagePrompt, size: imageSize, n: 1 }
+    : {
+        model,
+        messages,
+        temperature: requestUrl.pathname === '/api/test' ? 0 : body.temperature,
+        ...(wantsStream ? { stream: true } : {})
+      };
+  if (!isImageRequest) {
+    const maxTokens = requestUrl.pathname === '/api/test' ? 8 : body.max_tokens;
+    if (Number.isInteger(maxTokens) && maxTokens > 0 && maxTokens <= 16384) {
+      upstreamBody.max_tokens = maxTokens;
+    }
   }
 
   let upstream;
@@ -466,7 +609,7 @@ export async function handleRequest(request, fetchImpl = fetch, env = {}) {
       headers: {
         Authorization: authorization,
         'Content-Type': 'application/json',
-        Accept: 'application/json'
+        Accept: wantsStream ? 'text/event-stream, application/json' : 'application/json'
       },
       body: JSON.stringify(upstreamBody),
       redirect: 'manual'

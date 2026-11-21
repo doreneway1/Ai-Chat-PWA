@@ -290,3 +290,82 @@ test('forwards supported image content and rejects non-image data URLs', async (
   });
   assert.equal(rejected.status, 400);
 });
+
+test('forwards streaming chat requests and larger token limits', async () => {
+  const response = await handleRequest(makeRequest('/api/chat/completions', {
+    headers: { Authorization: authorization },
+    body: {
+      baseUrl: 'https://ai.ipeenk.com/v1',
+      model: 'deepseek-v4-pro',
+      messages: [{ role: 'user', content: 'Halo' }],
+      stream: true,
+      max_tokens: 8192
+    }
+  }), async (_url, init) => {
+    const sent = JSON.parse(init.body);
+    assert.equal(sent.stream, true);
+    assert.equal(sent.max_tokens, 8192);
+    assert.match(init.headers.Accept, /text\/event-stream/);
+    return new Response('data: {"choices":[{"delta":{"content":"Hai"}}]}\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' }
+    });
+  });
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Hai/);
+});
+
+test('searches the web through Brave with the user supplied key', async () => {
+  const response = await handleRequest(makeRequest('/api/search', {
+    headers: { Authorization: authorization },
+    body: { query: 'berita AI hari ini', count: 3, searchApiKey: 'brave-key-123456' }
+  }), async (url, init) => {
+    assert.equal(url.hostname, 'api.search.brave.com');
+    assert.equal(url.searchParams.get('q'), 'berita AI hari ini');
+    assert.equal(init.headers['X-Subscription-Token'], 'brave-key-123456');
+    return Response.json({ web: { results: [
+      { title: '<b>Judul</b>', url: 'https://example.com/berita', description: '<i>Cuplikan</i>', age: '1 jam' }
+    ] } });
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.results[0].title, 'Judul');
+  assert.equal(payload.results[0].description, 'Cuplikan');
+});
+
+test('forwards image generation to the provider image endpoint', async () => {
+  const response = await handleRequest(makeRequest('/api/images/generations', {
+    headers: { Authorization: authorization },
+    body: {
+      baseUrl: 'https://ai.ipeenk.com/v1',
+      model: 'image-model',
+      prompt: 'kota masa depan',
+      size: '1024x1792'
+    }
+  }), async (url, init) => {
+    assert.equal(url.toString(), 'https://ai.ipeenk.com/v1/images/generations');
+    assert.deepEqual(JSON.parse(init.body), {
+      model: 'image-model',
+      prompt: 'kota masa depan',
+      size: '1024x1792',
+      n: 1
+    });
+    return Response.json({ data: [{ url: 'https://cdn.example/kota.png' }] });
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).data[0].url, 'https://cdn.example/kota.png');
+});
+
+test('extracts Telegram channel posts from widget message blocks', async () => {
+  const telegramHtml = `<html><head><title>Channel Uji</title></head><body>
+    <div class="tgme_widget_message_text js-message_text" dir="auto">Pengumuman <b>penting</b><br/>Baris kedua</div>
+    <div class="tgme_widget_message_footer"><time datetime="2026-11-20T10:00:00+00:00">10:00</time></div>
+  </body></html>`;
+  const response = await handleRequest(makeRequest('/api/scrape', {
+    headers: { Authorization: authorization },
+    body: { url: 'https://t.me/s/channeluji' }
+  }), async () => htmlResponse(telegramHtml));
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.match(payload.text, /Postingan 2026-11-20/);
+  assert.match(payload.text, /Pengumuman penting\nBaris kedua/);
+});
