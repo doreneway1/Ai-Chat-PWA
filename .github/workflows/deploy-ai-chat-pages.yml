@@ -35,6 +35,9 @@ jobs:
       - name: Install client dependencies
         working-directory: projects/ai-chat-pwa
         run: npm ci
+      - name: Test client and Worker
+        working-directory: projects/ai-chat-pwa
+        run: npm test
       - name: Build client
         working-directory: projects/ai-chat-pwa
         run: npm run build
