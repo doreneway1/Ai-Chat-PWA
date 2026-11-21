@@ -27,7 +27,7 @@ Semua model dari provider yang sudah diuji muncul di dropdown. Tambahkan model m
 
 Auto memakai heuristik sederhana dan bukan router cerdas atau jaminan kualitas setara Venice. Pemilihan hanya mencakup model yang dikonfigurasi.
 
-Prompt sistem meminta jawaban lugas, menghindari penolakan yang tidak perlu, dan jujur jika tidak punya kemampuan membuka tautan. Prompt tidak menonaktifkan kebijakan provider/model. Aplikasi tidak memiliki browser interaktif; tautan publik dibaca melalui Worker seperti dijelaskan pada bagian Membaca tautan publik, sedangkan isi privat seperti riwayat grup Telegram tetap harus ditempel atau diunggah sebagai ekspor yang memang boleh kamu bagikan.
+Prompt sistem meminta jawaban lugas dan faktual, menjelaskan dengan singkat bila sebuah permintaan tidak dapat dipenuhi, dan jujur jika tidak punya kemampuan membuka tautan. Prompt tidak menonaktifkan kebijakan provider/model. Aplikasi tidak memiliki browser interaktif; tautan publik dibaca melalui Worker seperti dijelaskan pada bagian Membaca tautan publik, sedangkan isi privat seperti riwayat grup Telegram tetap harus ditempel atau diunggah sebagai ekspor yang memang boleh kamu bagikan.
 
 Ikon pengaturan di sebelah tingkat pemikiran mengatur nama, ikon/foto AI, dan instruksi gaya/konteks. Profil disimpan per room; pengaturan bisa dijadikan default untuk chat baru. Instruksi tidak bisa melewati kebijakan provider/model atau memberi kemampuan yang tidak tersedia. Memori room tetap terpisah. Memori global adalah catatan teks manual yang disimpan di browser perangkat dan hanya dikirim untuk room yang mengaktifkan opsinya; riwayat chat lain tidak otomatis dikirim. Menu ⋯ pada chat menyediakan pin beberapa percakapan, ganti nama, pindah urutan dalam kelompok pin yang sama, dan hapus.
 
@@ -56,7 +56,7 @@ Rilis ini menggabungkan empat paket upgrade dalam satu pemasangan:
 - **Backup dan pemulihan.** Tombol **Backup** di sidebar mengunduh satu file JSON berisi riwayat, pengaturan, template, dan memori lokal. **Pulihkan** mengganti data lokal saat ini dengan isi backup setelah konfirmasi. Jika brankas PIN belum aktif, backup dapat berisi API key yang bisa dibaca; perlakukan file backup seperti password.
 - **Cari dan template.** Kotak pencarian di sidebar menyaring percakapan berdasarkan judul dan isi pesan. Tombol **▦** membuka template bawaan dan template kustom yang tersimpan lokal.
 - **Suara.** Tombol **🎙** memakai Web Speech API browser untuk mengubah ucapan menjadi teks bila browser mendukungnya. Aksi **Dengar** pada jawaban memakai suara perangkat (`speechSynthesis`) untuk membacakan teks.
-- **Brankas PIN opsional.** Di Pengaturan API, aktifkan **Kunci API key dengan PIN** untuk mengenkripsi API key provider dan Brave Search key di localStorage memakai WebCrypto (PBKDF2 + AES-GCM). PIN tidak disimpan dan tidak dapat dipulihkan oleh aplikasi; lupa PIN berarti key terenkripsi tidak dapat dibuka dan harus dimasukkan ulang. Riwayat chat tidak ikut dienkripsi oleh fitur ini.
+- **Brankas PIN opsional (minimal 8 karakter).** Di Pengaturan API, aktifkan **Kunci API key dengan PIN** untuk mengenkripsi API key provider dan Brave Search key di localStorage memakai WebCrypto (PBKDF2 + AES-GCM). PIN tidak disimpan dan tidak dapat dipulihkan oleh aplikasi; lupa PIN berarti key terenkripsi tidak dapat dibuka dan harus dimasukkan ulang. Riwayat chat tidak ikut dienkripsi oleh fitur ini.
 - **Mode gambar.** Isi **Model gambar** di Pengaturan API, aktifkan tombol **🖼**, lalu kirim prompt gambar. Worker meneruskan ke endpoint `POST /api/images/generations` provider yang dipilih (atau provider teruji pertama). Dukungan, harga, dan format hasil bergantung pada provider/model gambar tersebut.
 - **Bandingkan model.** Tombol **⇄** mengirim pertanyaan terakhir ke dua kombinasi provider/model secara paralel dalam dialog terpisah. Hasil perbandingan tidak masuk riwayat sampai kamu menekan **Pakai jawaban ini**.
 
@@ -73,7 +73,7 @@ Ukuran font kotak chat, editor kode, dan input pengaturan minimal 16 px pada lay
 ## Lampiran dan riwayat
 
 - Maksimal 5 file per pesan, masing-masing maksimal 10 MB.
-- Teks/kode umum dibaca sebagai teks; PDF dibatasi 80 halaman; DOCX, XLSX, PPTX diekstrak di browser; gambar PNG, JPEG, dan WebP dikirim sebagai gambar. Total gambar per pesan maksimal 5 MB.
+- Teks/kode umum dibaca sebagai teks; PDF dibatasi 80 halaman; DOCX, XLSX, PPTX diekstrak di browser; gambar PNG, JPEG, dan WebP dikirim sebagai gambar. Total gambar per pesan maksimal 4,5 MB.
 - XLSX/PPTX/DOCX diproses di perangkat. Isi yang diekstrak, prompt, dan gambar dikirim ke Worker lalu ke provider saat chat dikirim. Dukungan gambar juga bergantung pada provider/model.
 - API key, Base URL, dan pengaturan provider tersimpan di `localStorage` browser.
 - Riwayat chat tersimpan di `IndexedDB` browser. Foto disimpan bersama pesan sebagai data URL/base64; file teks dan dokumen yang dilampirkan disimpan sebagai teks hasil ekstraksi. Artinya foto dan riwayat memang memakai ruang penyimpanan komputer/ponsel ini. Ukurannya bergantung pada panjang chat dan lampiran; data lokal browser juga tunduk pada kuota browser/perangkat.
