@@ -42,6 +42,26 @@ Jika pesan berisi tautan `http://` atau `https://`, aplikasi menampilkannya seba
 - Isi halaman yang berhasil dibaca dikirim ke provider bersama prompt saat chat dikirim, sama seperti lampiran. Jangan menempelkan tautan yang isinya tidak boleh dibagikan ke provider yang dipilih.
 - Fitur ini memakai Worker yang sama dengan relay chat; tidak ada konfigurasi tambahan. Setelah memperbarui source Worker, salin dan deploy ulang Worker secara manual melalui Cloudflare Dashboard agar route `/api/scrape` tersedia.
 
+## Upgrade besar: Chat Hidup, Otak Kedua, Produktivitas, dan Studio
+
+Rilis ini menggabungkan empat paket upgrade dalam satu pemasangan:
+
+- **Streaming dan kontrol jawaban.** Jawaban tampil sambil ditulis model. Tombol kirim berubah menjadi tombol stop selama jawaban berjalan; jawaban yang dihentikan setelah sebagian tampil akan disimpan sebagai jawaban parsial bertanda “Dihentikan”. Setiap pesan kini memiliki aksi **Salin**, pesan pengguna memiliki **Edit & kirim ulang**, dan jawaban terakhir memiliki **Buat ulang**.
+- **Parameter per room.** Di **Pengaturan percakapan → Mesin Jawaban**, atur temperature dan batas token jawaban (256–16.384; default 4.096). Pengaturan ini menggantikan kunci lama temperature 0,7 dan `max_tokens` 1.000.
+- **Failover provider.** Pada mode Auto, aplikasi menyiapkan beberapa kandidat provider/model. Jika kandidat pertama gagal sebelum jawaban mulai mengalir, aplikasi otomatis mencoba kandidat berikutnya. Pada pilihan model manual, failover hanya ke model yang sama di provider lain agar model pilihan tidak diam-diam diganti. Kegagalan setelah sebagian jawaban mengalir tidak diulang otomatis karena dapat mencampur dua jawaban.
+- **Judul otomatis.** Judul room pertama dibuat oleh model setelah jawaban pertama berhasil; bila panggilan judul gagal, judul potongan pesan tetap dipakai.
+- **Pencarian web.** Isi **Brave Search API key** di Pengaturan API, lalu aktifkan tombol **🌐** di composer atau opsi pencarian web pada pengaturan room. Worker memanggil Brave melalui route `POST /api/search`, menyimpan hasil sebagai kartu sumber pada pesan, dan mengirim cuplikannya sebagai blok `HASIL PENCARIAN WEB`. Tanpa key Brave, chat tetap berjalan tanpa pencarian dan aplikasi memberi tahu alasannya.
+- **Channel Telegram publik.** Tautan `t.me/<channel>` kini dicoba melalui pratinjau postingan publik `t.me/s/<channel>` terlebih dahulu, dan blok postingan Telegram diekstrak secara khusus. Ini hanya berlaku untuk channel publik; riwayat grup privat tetap tidak dapat dibaca.
+- **Ringkasan konteks dan meter konteks.** Meter di bar atas menunjukkan estimasi token konteks. Bila opsi ringkasan otomatis aktif dan riwayat sudah panjang, aplikasi merangkum bagian lama dengan panggilan model tambahan dan menyimpan ringkasannya di room, sehingga pesan terbaru tetap nyambung tanpa mengirim seluruh riwayat selamanya. Ringkasan adalah estimasi kerja model dan dapat dicoba lagi bila gagal.
+- **Backup dan pemulihan.** Tombol **Backup** di sidebar mengunduh satu file JSON berisi riwayat, pengaturan, template, dan memori lokal. **Pulihkan** mengganti data lokal saat ini dengan isi backup setelah konfirmasi. Jika brankas PIN belum aktif, backup dapat berisi API key yang bisa dibaca; perlakukan file backup seperti password.
+- **Cari dan template.** Kotak pencarian di sidebar menyaring percakapan berdasarkan judul dan isi pesan. Tombol **▦** membuka template bawaan dan template kustom yang tersimpan lokal.
+- **Suara.** Tombol **🎙** memakai Web Speech API browser untuk mengubah ucapan menjadi teks bila browser mendukungnya. Aksi **Dengar** pada jawaban memakai suara perangkat (`speechSynthesis`) untuk membacakan teks.
+- **Brankas PIN opsional.** Di Pengaturan API, aktifkan **Kunci API key dengan PIN** untuk mengenkripsi API key provider dan Brave Search key di localStorage memakai WebCrypto (PBKDF2 + AES-GCM). PIN tidak disimpan dan tidak dapat dipulihkan oleh aplikasi; lupa PIN berarti key terenkripsi tidak dapat dibuka dan harus dimasukkan ulang. Riwayat chat tidak ikut dienkripsi oleh fitur ini.
+- **Mode gambar.** Isi **Model gambar** di Pengaturan API, aktifkan tombol **🖼**, lalu kirim prompt gambar. Worker meneruskan ke endpoint `POST /api/images/generations` provider yang dipilih (atau provider teruji pertama). Dukungan, harga, dan format hasil bergantung pada provider/model gambar tersebut.
+- **Bandingkan model.** Tombol **⇄** mengirim pertanyaan terakhir ke dua kombinasi provider/model secara paralel dalam dialog terpisah. Hasil perbandingan tidak masuk riwayat sampai kamu menekan **Pakai jawaban ini**.
+
+Setelah upgrade ini, Worker wajib disalin dan di-deploy ulang secara manual dari Cloudflare Dashboard karena ada route baru `/api/search` dan `/api/images/generations`, dukungan streaming, dan batas token yang lebih besar.
+
 ## Blok kode dan perintah
 
 Jawaban Markdown ditampilkan sebagai paragraf, judul, daftar, tabel, tautan, teks tebal, dan inline code agar tidak terlihat seperti simbol mentah. Jika model mengembalikan fenced code block Markdown, misalnya ` ```yaml `, ` ```json `, ` ```bash `, atau ` ```powershell `, client menampilkannya dengan pewarnaan sintaks serta tombol **Salin** dan **Edit**. Edit mengubah blok tersebut di jawaban dan menyimpan perubahan pada riwayat lokal. Tombol salin hanya menyalin teks; aplikasi tidak menjalankan perintah terminal.
@@ -77,4 +97,4 @@ Worker bawaan hanya mengizinkan origin GitHub Pages tersebut. Untuk menguji dari
 
 ## Publikasi
 
-Workflow GitHub Actions membangun PWA dengan Vite lalu menerbitkan folder `dist` ke GitHub Pages. Riwayat dan API key tidak dimasukkan ke bundle. Setelah mengubah source Worker, salin dan deploy ulang Worker secara terpisah melalui Cloudflare Dashboard.
+Workflow GitHub Actions menjalankan `npm test`, membangun PWA dengan Vite, lalu menerbitkan folder `dist` ke GitHub Pages. Riwayat dan API key tidak dimasukkan ke bundle. Setelah mengubah source Worker, salin dan deploy ulang Worker secara terpisah melalui Cloudflare Dashboard.

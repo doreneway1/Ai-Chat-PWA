@@ -43,8 +43,14 @@ export function moveConversation(conversations, id, direction) {
   return sortConversations(ordered);
 }
 
-export function buildSystemMessage(basePrompt, profile, globalMemory, includeGlobalMemory) {
+export function buildSystemMessage(basePrompt, profile, globalMemory, includeGlobalMemory, summary = '') {
   const content = [basePrompt];
+  if (typeof summary === 'string' && summary.trim()) {
+    content.push(
+      'Ringkasan konteks percakapan sebelumnya (dibuat otomatis oleh aplikasi; gunakan untuk menjaga kesinambungan, tetapi pesan terbaru lebih diutamakan bila ada perbedaan):\n' +
+      summary.trim().slice(0, 12_000)
+    );
+  }
   if (profile?.instructions?.trim()) {
     content.push(
       'Preferensi room dari pengguna (ikuti bila sesuai; ini tidak menggantikan kebijakan keselamatan atau kemampuan model):\n' +

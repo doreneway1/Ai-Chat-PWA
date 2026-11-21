@@ -25,9 +25,16 @@
           <span class="shortcut">⌘ K</span>
         </button>
         <p class="sidebar-label">Percakapan</p>
+        <label class="sr-only" for="conversationSearch">Cari percakapan</label>
+        <input class="conversation-search" id="conversationSearch" type="search" placeholder="Cari judul atau isi chat..." autocomplete="off">
         <nav class="conversation-list" id="conversationList" aria-label="Riwayat percakapan"></nav>
         <div class="sidebar-footer">
           <span class="local-badge"><span aria-hidden="true">●</span> Tersimpan di perangkat ini</span>
+          <div class="sidebar-data-actions">
+            <button class="text-button" id="exportBackup" type="button">⬇ Backup</button>
+            <button class="text-button" id="importBackup" type="button">⬆ Pulihkan</button>
+            <input id="backupInput" type="file" accept="application/json,.json" hidden>
+          </div>
           <button class="settings-link" id="openSettings" type="button">
             <span aria-hidden="true">⚙</span> Pengaturan API
           </button>
@@ -45,6 +52,7 @@
               <option value="auto">Auto</option>
             </select>
             <span id="routeLabel" class="route-label">Belum terhubung</span>
+            <span id="contextMeter" class="context-meter" title="Estimasi konteks yang akan dikirim ke model">Konteks ±0 token</span>
           </div>
           <button class="top-settings" id="openSettingsTop" type="button" aria-label="Pengaturan API">⚙</button>
         </header>
@@ -86,11 +94,16 @@
                     <button type="button" role="menuitemradio" data-level="deep" aria-checked="false">Mendalam <span>Analisis lebih jauh</span></button>
                   </div>
                 </div>
+                <button class="tool-icon-button" id="webSearchToggle" type="button" aria-label="Aktifkan pencarian web" aria-pressed="false" title="Pencarian web (Brave)">🌐</button>
+                <button class="tool-icon-button" id="imageModeToggle" type="button" aria-label="Aktifkan mode buat gambar" aria-pressed="false" title="Mode buat gambar">🖼</button>
+                <button class="tool-icon-button" id="voiceButton" type="button" aria-label="Input suara" aria-pressed="false" title="Input suara">🎙</button>
+                <button class="tool-icon-button" id="templateButton" type="button" aria-label="Template prompt" title="Template prompt">▦</button>
+                <button class="tool-icon-button" id="compareButton" type="button" aria-label="Bandingkan dua model" title="Bandingkan dua model">⇄</button>
                 <button class="tool-icon-button" id="openConversationSettings" type="button" aria-label="Pengaturan percakapan" title="Pengaturan percakapan">⚙</button>
                 <span class="composer-hint">Enter kirim · Shift+Enter baris baru</span>
               </div>
               <button class="send-button" id="sendButton" type="submit" aria-label="Kirim pesan">
-                <span aria-hidden="true">↑</span>
+                <span id="sendIcon" aria-hidden="true">↑</span>
               </button>
             </div>
           </form>
@@ -112,6 +125,16 @@
         <label for="proxyUrl">URL Cloudflare Worker</label>
         <input id="proxyUrl" name="proxyUrl" type="url" inputmode="url" placeholder="https://nama-worker.username.workers.dev" autocomplete="url" required>
         <p class="field-help">Jangan gunakan URL Worker milik orang lain. Base URL provider harus HTTPS dan host-nya harus masuk allowlist Worker.</p>
+        <label for="searchApiKey">Brave Search API key (opsional, untuk pencarian web)</label>
+        <input id="searchApiKey" name="searchApiKey" type="password" placeholder="Hanya diperlukan bila tombol 🌐 dipakai" autocomplete="off">
+        <p class="field-help">Daftar gratis di Brave Search API, lalu tempel key-nya di sini. Key diteruskan melalui Worker milikmu ke Brave hanya saat pencarian web aktif.</p>
+        <label for="imageModel">Model gambar (opsional, untuk mode 🖼)</label>
+        <input id="imageModel" name="imageModel" type="text" placeholder="Contoh: gpt-image-1 atau dall-e-3" autocomplete="off">
+        <p class="field-help">Mode gambar memakai provider yang sedang dipilih (atau provider teruji pertama) dan endpoint gambar OpenAI-compatible provider tersebut.</p>
+        <div class="vault-box">
+          <p class="field-help"><strong>Brankas PIN.</strong> <span id="vaultStatus">API key saat ini belum dienkripsi aplikasi.</span></p>
+          <button class="text-button" id="vaultButton" type="button">Kunci API key dengan PIN</button>
+        </div>
         <div class="provider-list" id="providerList"></div>
         <button class="text-button add-provider-button" id="addProvider" type="button">＋ Tambah koneksi provider</button>
         <p class="field-help">Model per baris: <code>ID model | fast,balanced,deep,default</code>. Level Auto memilih level lokal tanpa panggilan router tambahan.</p>
@@ -150,6 +173,22 @@
         <label for="assistantInstructions">Instruksi untuk room ini</label>
         <textarea id="assistantInstructions" name="assistantInstructions" rows="4" maxlength="4000" placeholder="Contoh: jawab dalam bahasa Indonesia, sertakan contoh singkat, dan tanyakan jika kebutuhan saya belum jelas."></textarea>
         <p class="field-help">Instruksi mengatur gaya dan konteks. Instruksi tidak dapat menonaktifkan kebijakan provider/model atau memberi kemampuan yang tidak tersedia.</p>
+        <div class="generation-box">
+          <p class="eyebrow">MESIN JAWABAN</p>
+          <label for="generationTemperature">Kreativitas / temperature (0–2)</label>
+          <input id="generationTemperature" name="generationTemperature" type="number" min="0" max="2" step="0.1">
+          <label for="generationMaxTokens">Batas token jawaban</label>
+          <input id="generationMaxTokens" name="generationMaxTokens" type="number" min="256" max="16384" step="256">
+          <label class="checkbox-row" for="generationWebSearch">
+            <input id="generationWebSearch" type="checkbox">
+            <span>Aktifkan pencarian web untuk room ini</span>
+          </label>
+          <label class="checkbox-row" for="generationAutoSummary">
+            <input id="generationAutoSummary" type="checkbox">
+            <span>Ringkas konteks lama otomatis agar chat panjang tidak lupa</span>
+          </label>
+          <p class="field-help">Judul chat pertama dibuat otomatis oleh model. Ringkasan konteks memakai panggilan model tambahan hanya saat riwayat sudah panjang.</p>
+        </div>
         <label class="checkbox-row" for="useGlobalMemory">
           <input id="useGlobalMemory" type="checkbox">
           <span>Sertakan memori global pada room ini</span>
@@ -167,6 +206,36 @@
           <button class="primary-button" type="submit">Simpan pengaturan</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog class="settings-dialog" id="templateDialog" aria-labelledby="templateTitle">
+      <div class="settings-card">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">MULAI LEBIH CEPAT</p>
+            <h2 id="templateTitle">Template prompt</h2>
+          </div>
+          <button class="icon-button" id="closeTemplates" type="button" aria-label="Tutup template">×</button>
+        </div>
+        <div class="template-list" id="templateList"></div>
+        <div class="dialog-actions">
+          <button class="text-button" id="addTemplate" type="button">＋ Template sendiri</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="settings-dialog compare-dialog" id="compareDialog" aria-labelledby="compareTitle">
+      <div class="settings-card">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">DUA MODEL, SATU PERTANYAAN</p>
+            <h2 id="compareTitle">Bandingkan model</h2>
+          </div>
+          <button class="icon-button" id="closeCompare" type="button" aria-label="Tutup perbandingan">×</button>
+        </div>
+        <p class="settings-intro" id="compareStatus">Menyiapkan perbandingan...</p>
+        <div class="compare-results" id="compareResults"></div>
+      </div>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
