@@ -48,6 +48,12 @@ export function createSseParser(onDelta = () => {}) {
       return;
     }
     sawEvent = true;
+    if (payload?.error) {
+      const detail = typeof payload.error === 'string'
+        ? payload.error
+        : payload.error.message || JSON.stringify(payload.error);
+      throw new Error(`Provider error: ${detail}`);
+    }
     if (typeof payload?.model === 'string') model = payload.model;
     const choice = payload?.choices?.[0] || {};
     const delta = textFromContent(choice.delta?.content ?? choice.message?.content ?? choice.text ?? '');
@@ -97,6 +103,12 @@ export async function readChatResponse(response, onDelta = () => {}) {
         if (result.sawEvent) return result;
       }
       throw new Error('Relay mengembalikan respons yang bukan JSON/SSE.');
+    }
+    if (payload?.error) {
+      const detail = typeof payload.error === 'string'
+        ? payload.error
+        : payload.error.message || JSON.stringify(payload.error);
+      throw new Error(`Provider error: ${detail}`);
     }
     const choice = payload?.choices?.[0] || {};
     const content = textFromContent(choice.message?.content ?? choice.delta?.content ?? choice.text ?? '');
