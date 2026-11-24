@@ -29,6 +29,11 @@
 //   lalu sambungkan di Worker Settings > Variables > KV Namespace Bindings
 //   dengan nama variabel HISTORY_KV. Tanpa binding ini, riwayat hanya di
 //   memori Worker.
+// - OWNER_CHAT_ID (opsional): ID Telegram numerik pemilik akun (didapat dari
+//   @userinfobot). Kalau diatur, bot mengirim notifikasi ke pemilik setiap ada
+//   chat yang dibalas otomatis, supaya pemilik tidak kelewatan. Pemilik harus
+//   menekan Start di bot dulu supaya bot bisa mengirim pesan kepadanya.
+//   Pemilik bisa mengirim /start ke bot untuk memastikan notifikasi aktif.
 // Provider OpenAI-compatible dipakai dulu; kalau gagal, bot mencoba Gemini.
 // Tanpa keduanya, bot memakai balasan manual saja.
 //
@@ -161,9 +166,10 @@ export async function saveChatToKv(kv, st, chatId) {
   }
 }
 
-// ctx: { send({businessConnectionId, chatId, text}), aiReply?({chatId, text, history}), state?, now?, kv? }
-// `state`, `now`, `aiReply`, dan `kv` bisa di-inject untuk tes; defaultnya
-// state modul, Date.now(), tanpa AI, dan tanpa KV.
+// ctx: { send({businessConnectionId, chatId, text}), aiReply?({chatId, text, history}), state?, now?, kv?, notifyOwner?(text), ownerChatId? }
+// `state`, `now`, `aiReply`, `kv`, `notifyOwner`, dan `ownerChatId` bisa
+// di-inject untuk tes; defaultnya state modul, Date.now(), tanpa AI, tanpa
+// KV, tanpa notifikasi pemilik, dan tanpa ID pemilik.
 export async function handleUpdate(update, ctx) {
   const st = ctx.state ?? state;
   const now = ctx.now ?? Date.now();
@@ -171,6 +177,21 @@ export async function handleUpdate(update, ctx) {
   if (update.business_connection) {
     // Bot dihubungkan/diputus dari akun bisnis. Tidak ada aksi yang diperlukan.
     return { ok: true, action: "business_connection" };
+  }
+
+  // Pesan langsung ke bot (bukan business_message). Kalau pemilik mengirim
+  // /start, balas dengan konfirmasi bahwa notifikasi aktif. Pesan langsung
+  // dari orang lain diabaikan.
+  const dm = update.message;
+  if (dm?.text === "/start" && ctx.ownerChatId && String(dm.from?.id) === String(ctx.ownerChatId)) {
+    if (ctx.notifyOwner) {
+      try {
+        await ctx.notifyOwner("✅ Notifikasi aktif. Setiap ada chat yang dibalas otomatis, kamu akan menerima pesannya di sini.");
+      } catch (err) {
+        console.error("notifyOwner error:", err);
+      }
+    }
+    return { ok: true, action: "start" };
   }
 
   const msg = update.business_message;
@@ -255,7 +276,36 @@ export async function handleUpdate(update, ctx) {
   for (const reply of replies) {
     await ctx.send({ businessConnectionId, chatId, text: reply });
   }
+
+  // Beri tahu pemilik kalau ada chat yang dibalas otomatis, supaya pemilik
+  // tidak kelewatan (balasan bot membuat chat terlihat sudah ditangani).
+  // Kalau bot tidak membalas, pesan itu tetap belum dibaca jadi pemilik akan
+  // melihatnya sendiri; tidak perlu notifikasi.
+  if (replies.length && ctx.notifyOwner) {
+    try {
+      await ctx.notifyOwner(ownerNotifyText({
+        senderName: msg.from?.first_name ?? "Seseorang",
+        text,
+        replies,
+      }));
+    } catch (err) {
+      console.error("notifyOwner error:", err);
+    }
+  }
   return { ok: true, action: replies.length ? "replied" : "no_reply", count: replies.length };
+}
+
+// Susun teks notifikasi untuk pemilik: siapa yang chat, apa pesannya, dan apa
+// yang dibalas bot. Balasan bot dipotong supaya notifikasi tetap ringkas.
+export function ownerNotifyText({ senderName, text, replies }) {
+  const lines = [`💬 Chat baru dari ${senderName}:`, text];
+  const lastReply = replies[replies.length - 1];
+  if (lastReply) {
+    const short = lastReply.length > 300 ? lastReply.slice(0, 299) + "…" : lastReply;
+    lines.push("", `🤖 Bot membalas: ${short}`);
+  }
+  const full = lines.join("\n");
+  return full.length > 4000 ? full.slice(0, 3999) + "…" : full;
 }
 
 // Minta balasan AI ke provider yang kompatibel dengan OpenAI (mis. DeepSeek,
@@ -370,6 +420,22 @@ export async function geminiReply(env, { history, text }, fetchFn = fetch) {
   return reply || null;
 }
 
+// Kirim pesan biasa dari bot ke pemilik (bukan sebagai akun bisnis).
+// Tanpa OWNER_CHAT_ID, fungsi ini tidak melakukan apa-apa.
+async function telegramSendToOwner(env, text) {
+  if (!env.OWNER_CHAT_ID) return;
+  const res = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: env.OWNER_CHAT_ID, text }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) {
+    throw new Error(`Telegram notify owner gagal (${res.status}): ${data.description ?? "unknown"}`);
+  }
+  return data;
+}
+
 async function telegramSend(env, { businessConnectionId, chatId, text }) {
   const res = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
     method: "POST",
@@ -424,6 +490,8 @@ export default {
         send: (args) => telegramSend(env, args),
         aiReply: (args) => generateAiReply(env, args),
         kv: env.HISTORY_KV,
+        notifyOwner: (text) => telegramSendToOwner(env, text),
+        ownerChatId: env.OWNER_CHAT_ID,
       });
       return Response.json(result);
     } catch (err) {
