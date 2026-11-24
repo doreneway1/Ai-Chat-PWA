@@ -39,6 +39,9 @@ Telegrammu, sebagai akunmu sendiri (bukan sebagai bot).
    (default `https://api.deepseek.com`); `AI_MODEL` = nama model
    (default `deepseek-chat`). Tanpa secret AI apa pun, bot hanya memakai
    balasan manual.
+   `OWNER_CHAT_ID` = ID Telegram numerikmu (tanya ke @userinfobot): kalau
+   diisi, bot mengirimi kamu notifikasi setiap ada chat yang dibalas
+   otomatis. Tekan Start di bot dulu supaya bot bisa mengirimimu pesan.
 5. **Sambungkan KV (opsional, untuk ingatan 24 jam)**: di dashboard
    Cloudflare → Workers & Pages → KV → Create a namespace (beri nama mis.
    `telegram-bot-history`). Lalu di halaman Worker → Settings → Variables →
@@ -76,6 +79,18 @@ mengirim sapaan dan balasan standar manual.
 Sesuaikan `CONFIG.ai.systemPrompt` dengan kebutuhanmu (nama, gaya bicara,
 cara menjawab). Riwayat konteks disimpan di KV selama 24 jam (lihat langkah
 5 di atas); tanpa KV, riwayat hanya bertahan selama Worker tidak restart.
+
+## Notifikasi ke pemilik
+
+Balasan bot dikirim atas namamu, jadi chat yang sudah dibalas terlihat sudah
+ditangani dan mudah kelewatan. Kalau `OWNER_CHAT_ID` diatur, bot mengirimimu
+pesan langsung setiap ada chat yang dibalas otomatis, berisi nama pengirim,
+isi pesannya, dan balasan yang dikirim bot. Kalau bot tidak membalas
+(misalnya saat jeda karena kamu baru saja membalas sendiri), tidak ada
+notifikasi karena pesan itu tetap belum dibaca dan akan kamu lihat sendiri.
+
+Kirim `/start` ke bot untuk memastikan notifikasi aktif — bot akan membalas
+dengan konfirmasi.
 
 ## Keamanan token
 
