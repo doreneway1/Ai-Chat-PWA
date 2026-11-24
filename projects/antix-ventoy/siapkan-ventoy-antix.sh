@@ -18,8 +18,75 @@
 VENTOY_PART="${VENTOY_PART:-/live/persist-dev}"   # partisi data Ventoy (tempat homefs berada)
 ISO_MOUNT="/tmp/antix-iso"
 
-echo "siapkan-ventoy-antix.sh v3 — patch kernel1.cfg (modern) + grub.cfg"
+echo "siapkan-ventoy-antix.sh v4 — patch kernel1.cfg (modern) + grub.cfg"
 echo ""
+
+# --- Fungsi syslinux (isolinux/kernel config) ---
+# antiX memakai direktif INITRD terpisah, jadi baris APPEND-nya tidak
+# mengandung initrd= (cuma "APPEND quiet", "APPEND quiet failsafe", dst).
+# Entri boot dikenali dari strukturnya: label yang punya baris KERNEL.
+# Entri non-boot (mis. "Back_to_Top" yang memakai COM32 + APPEND file=...)
+# tidak punya KERNEL, jadi tidak disentuh. Pencocokan case-insensitive
+# (config antiX memakai huruf besar, ISO lain bisa huruf kecil).
+# awk dibaca dua kali (two-pass): pass pertama mencatat label mana yang
+# punya KERNEL, pass kedua mem-patch APPEND di label-label itu — jadi
+# urutan KERNEL/APPEND di dalam label tidak jadi soal.
+hitung_boot_syslinux() {
+  # Cetak jumlah baris APPEND di label yang punya KERNEL.
+  awk '
+    NR==FNR {
+      if (tolower($0) ~ /^[[:space:]]*label[[:space:]]/) { cur=FNR; has[cur]=0 }
+      else if (tolower($0) ~ /^[[:space:]]*kernel[[:space:]]/) { has[cur]=1 }
+      next
+    }
+    FNR==1 { cur=0 }
+    {
+      if (tolower($0) ~ /^[[:space:]]*label[[:space:]]/) { cur=FNR }
+      if (has[cur]+0 && tolower($0) ~ /^[[:space:]]*append[[:space:]]/) { c++ }
+    }
+    END { print c+0 }
+  ' "$1" "$1"
+}
+
+tambah_param_syslinux() {
+  # $1 = file asli, $2 = file hasil
+  # Tambahkan ke SEMUA baris APPEND di entri boot (label berkernel).
+  # Return 1 kalau tidak ada baris boot yang cocok (supaya tidak
+  # "sukses" diam-diam seperti yang pernah terjadi).
+  local asal="$1" hasil="$2"
+  local n
+  n=$(hitung_boot_syslinux "$asal")
+  if [ "$n" = "0" ]; then
+    echo "  PERINGATAN: tidak ada baris boot yang cocok di file ini — dilewati."
+    return 1
+  fi
+  sudo cp "$asal" "$hasil"
+  if grep -q "persist_static" "$hasil"; then
+    echo "  (sudah ada persist_static, tidak diubah)"
+    return 0
+  fi
+  awk -v params=" plabel=Ventoy persist_static" '
+    NR==FNR {
+      if (tolower($0) ~ /^[[:space:]]*label[[:space:]]/) { cur=FNR; has[cur]=0 }
+      else if (tolower($0) ~ /^[[:space:]]*kernel[[:space:]]/) { has[cur]=1 }
+      next
+    }
+    FNR==1 { cur=0 }
+    {
+      if (tolower($0) ~ /^[[:space:]]*label[[:space:]]/) { cur=FNR }
+      if (has[cur]+0 && tolower($0) ~ /^[[:space:]]*append[[:space:]]/) { $0=$0 params }
+      print
+    }' "$asal" "$asal" > /tmp/antix-cfg.tmp && sudo mv /tmp/antix-cfg.tmp "$hasil"
+  # Verifikasi: kalau tidak ada baris yang berubah, anggap gagal.
+  if ! grep -q "persist_static" "$hasil"; then
+    echo "  PERINGATAN: penambahan parameter gagal (tidak ada baris yang berubah) — dilewati."
+    return 1
+  fi
+  echo "  --- sesudah ($n baris boot ter-patch) ---"
+  grep "persist_static" "$hasil"
+  return 0
+}
+
 echo "== 1. Cari file ISO antiX di flashdisk =="
 ISO=$(ls "$VENTOY_PART"/*.iso 2>/dev/null | head -n 1)
 if [ -z "$ISO" ]; then
@@ -60,11 +127,12 @@ fi
 # Ventoy hanya boleh mengganti maks. 2 file per ISO, jadi yang dipakai
 # adalah kernel modern (kernel1.cfg). Kalau tidak ada, fallback ke
 # kernel0.cfg, lalu ke isolinux.cfg itu sendiri (ISO lama).
+# File dipilih kalau berisi baris boot (APPEND di label berkernel).
 KERNEL_CFG=""
 if [ -n "$ISOLINUX_CFG" ]; then
   ISOLINUX_DIR=$(dirname "$ISOLINUX_CFG")
   for cand in "$ISOLINUX_DIR/kernel1.cfg" "$ISOLINUX_DIR/kernel0.cfg" "$ISOLINUX_CFG"; do
-    if [ -f "$cand" ] && grep -qi "^[[:space:]]*append[[:space:]].*initrd=" "$cand"; then
+    if [ -f "$cand" ] && [ "$(hitung_boot_syslinux "$cand")" != "0" ]; then
       KERNEL_CFG="$cand"
       break
     fi
@@ -122,7 +190,7 @@ if [ -n "$KERNEL_CFG" ]; then
   echo "== 4a. Buat salinan config kernel syslinux (mode BIOS/Legacy) =="
   REL_KERNEL="${KERNEL_CFG#$ISO_MOUNT}"
   KERNEL_BASE=$(basename "$KERNEL_CFG")
-  if tambah_param "$KERNEL_CFG" "$VENTOY_PART/ventoy/antix-$KERNEL_BASE" "^[[:space:]]*append[[:space:]].*initrd="; then
+  if tambah_param_syslinux "$KERNEL_CFG" "$VENTOY_PART/ventoy/antix-$KERNEL_BASE"; then
     LEGACY_ORG="$REL_KERNEL"
     LEGACY_NEW="/ventoy/antix-$KERNEL_BASE"
   fi
