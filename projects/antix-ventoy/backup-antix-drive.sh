@@ -20,8 +20,15 @@
 # Setelah itu Muse mengunduh file .gpg dan mengunggahnya ke Google Drive.
 
 set -e
-PERSIST_DIR="${PERSIST_DIR:-/live/persist-dev/antiX}"
-DEST_BASE="${1:-/live/persist-dev/backup-antix-drive}"
+# Lokasi file persistensi: saat boot non-persistent, partisi Ventoy bisa
+# ter-mount di /live/boot-dev (bukan /live/persist-dev) — cari otomatis.
+if [ -z "$PERSIST_DIR" ]; then
+  for d in /live/persist-dev/antiX /live/boot-dev/antiX; do
+    if [ -f "$d/rootfs" ]; then PERSIST_DIR="$d"; break; fi
+  done
+  PERSIST_DIR="${PERSIST_DIR:-/live/persist-dev/antiX}"
+fi
+DEST_BASE="${1:-$(dirname "$PERSIST_DIR")/backup-antix-drive}"
 ROOTFS="$PERSIST_DIR/rootfs"
 HOMEFS="$PERSIST_DIR/homefs"
 
