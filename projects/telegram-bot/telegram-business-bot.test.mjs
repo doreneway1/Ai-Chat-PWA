@@ -2,7 +2,7 @@
 // Jalankan: node --test telegram-business-bot.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { handleUpdate, createState, CONFIG, geminiReply, openaiReply, generateAiReply } from "./telegram-business-bot.mjs";
+import { handleUpdate, createState, CONFIG, geminiReply, openaiReply, generateAiReply, ownerNotifyText } from "./telegram-business-bot.mjs";
 
 const T0 = 1_000_000;
 
@@ -19,7 +19,7 @@ function customerMsg({ chatId = 111, messageId = 1, text = "permisi", connection
     business_message: {
       message_id: messageId,
       business_connection_id: connectionId,
-      from: { id: chatId, is_bot: false },
+      from: { id: chatId, is_bot: false, first_name: "Andi" },
       chat: { id: chatId, type: "private" },
       text,
     },
@@ -455,4 +455,92 @@ test("systemPrompt: asisten pribadi santai, bukan CS toko", () => {
   assert.match(CONFIG.ai.systemPrompt, /santai/);
   assert.match(CONFIG.ai.systemPrompt, /sibuk/);
   assert.match(CONFIG.ai.systemPrompt, /jangan mengarahkan pembicaraan ke produk/);
+});
+
+test("pemilik diberi tahu saat bot membalas", async () => {
+  const notified = [];
+  const state = createState();
+  const { ctx, sent } = makeCtx(state, T0, async () => "Balasan AI contoh.");
+  ctx.notifyOwner = async (text) => notified.push(text);
+  await handleUpdate(customerMsg({ messageId: 1, text: "berapa harganya?" }), ctx);
+  assert.equal(sent.length, 2);
+  assert.equal(notified.length, 1);
+  assert.match(notified[0], /Andi/);
+  assert.match(notified[0], /berapa harganya\?/);
+  assert.match(notified[0], /Balasan AI contoh\./);
+});
+
+test("pemilik tidak diberi tahu kalau bot tidak membalas", async () => {
+  const notified = [];
+  const state = createState();
+  const first = makeCtx(state);
+  await handleUpdate(customerMsg({ messageId: 1, text: "permisi" }), first.ctx);
+
+  const owner = makeCtx(state);
+  await handleUpdate(ownerMsg({ messageId: 50 }), owner.ctx);
+
+  const paused = makeCtx(state, T0, async () => "Balasan AI contoh.");
+  paused.ctx.notifyOwner = async (text) => notified.push(text);
+  const res = await handleUpdate(customerMsg({ messageId: 2, text: "berapa harganya?" }), paused.ctx);
+  assert.equal(res.action, "paused");
+  assert.equal(notified.length, 0);
+});
+
+test("ownerNotifyText memotong balasan bot yang panjang", () => {
+  const text = ownerNotifyText({
+    senderName: "Andi",
+    text: "halo",
+    replies: ["x".repeat(1000)],
+  });
+  assert.ok(text.length <= 4000);
+  assert.match(text, /…/);
+  assert.match(text, /Andi/);
+});
+
+test("notifikasi gagal tidak menggagalkan balasan", async () => {
+  const state = createState();
+  const { ctx, sent } = makeCtx(state, T0, async () => "Balasan AI contoh.");
+  ctx.notifyOwner = async () => { throw new Error("notify down"); };
+  const res = await handleUpdate(customerMsg({ messageId: 1, text: "permisi" }), ctx);
+  assert.equal(res.action, "replied");
+  assert.equal(sent.length, 2);
+});
+
+test("/start dari pemilik dibalas konfirmasi", async () => {
+  const notified = [];
+  const { ctx } = makeCtx(createState());
+  ctx.ownerChatId = "999";
+  ctx.notifyOwner = async (text) => notified.push(text);
+  const res = await handleUpdate(
+    { message: { message_id: 1, from: { id: 999 }, chat: { id: 999, type: "private" }, text: "/start" } },
+    ctx,
+  );
+  assert.equal(res.action, "start");
+  assert.equal(notified.length, 1);
+  assert.match(notified[0], /Notifikasi aktif/);
+});
+
+test("/start dari orang lain diabaikan", async () => {
+  const notified = [];
+  const { ctx } = makeCtx(createState());
+  ctx.ownerChatId = "999";
+  ctx.notifyOwner = async (text) => notified.push(text);
+  const res = await handleUpdate(
+    { message: { message_id: 1, from: { id: 111 }, chat: { id: 111, type: "private" }, text: "/start" } },
+    ctx,
+  );
+  assert.equal(res.action, "ignored");
+  assert.equal(notified.length, 0);
+});
+
+test("/start tanpa ownerChatId diabaikan", async () => {
+  const notified = [];
+  const { ctx } = makeCtx(createState());
+  ctx.notifyOwner = async (text) => notified.push(text);
+  const res = await handleUpdate(
+    { message: { message_id: 1, from: { id: 999 }, chat: { id: 999, type: "private" }, text: "/start" } },
+    ctx,
+  );
+  assert.equal(res.action, "ignored");
+  assert.equal(notified.length, 0);
 });
