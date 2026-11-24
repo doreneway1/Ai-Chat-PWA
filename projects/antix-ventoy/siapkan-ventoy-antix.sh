@@ -95,7 +95,7 @@ echo ""
 echo "== 5. Tulis ventoy.json =="
 # ISO path di ventoy.json dihitung dari root partisi Ventoy.
 ISO_REL="/${ISO#$VENTOY_PART/}"
-JSON_TMP="/tmp/ventoy.json.tmp"
+CONF_TMP="/tmp/ventoy-conf.json.tmp"
 {
   echo "{"
   FIRST=1
@@ -122,7 +122,35 @@ JSON_TMP="/tmp/ventoy.json.tmp"
     FIRST=0
   fi
   echo "}"
-} > "$JSON_TMP"
+} > "$CONF_TMP"
+# Gabung dengan ventoy.json yang sudah ada (kalau ada), supaya
+# pengaturan lain (mis. persistence) tidak hilang. Buat cadangan dulu.
+VENTOY_JSON="$VENTOY_PART/ventoy/ventoy.json"
+JSON_TMP="/tmp/ventoy.json.tmp"
+if [ -f "$VENTOY_JSON" ]; then
+  echo "ventoy.json sudah ada — dibuat cadangannya (.bak) dan digabung."
+  sudo cp "$VENTOY_JSON" "$VENTOY_JSON.bak"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$VENTOY_JSON" "$CONF_TMP" "$JSON_TMP" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        existing = json.load(f)
+except Exception as e:
+    print("ventoy.json lama tidak valid (%s), diganti dengan yang baru." % e)
+    existing = {}
+with open(sys.argv[2]) as f:
+    new = json.load(f)
+existing.update(new)
+with open(sys.argv[3], "w") as f:
+    json.dump(existing, f, indent=4)
+    f.write("\n")
+PYEOF
+  fi
+  [ -s "$JSON_TMP" ] || cp "$CONF_TMP" "$JSON_TMP"
+else
+  cp "$CONF_TMP" "$JSON_TMP"
+fi
 # Validasi JSON sebelum dipasang (kalau python3 tersedia).
 if command -v python3 >/dev/null 2>&1; then
   if python3 -m json.tool "$JSON_TMP" >/dev/null 2>&1; then
@@ -133,8 +161,8 @@ if command -v python3 >/dev/null 2>&1; then
     exit 1
   fi
 fi
-sudo mv "$JSON_TMP" "$VENTOY_PART/ventoy/ventoy.json"
-cat "$VENTOY_PART/ventoy/ventoy.json"
+sudo mv "$JSON_TMP" "$VENTOY_JSON"
+cat "$VENTOY_JSON"
 
 sudo umount "$ISO_MOUNT"
 echo ""
@@ -148,5 +176,6 @@ echo "  2. Jangan ketik apa-apa di layar boot — biarkan jalan sendiri."
 echo "  3. Setelah masuk desktop, cek:  mount | grep rootfs"
 echo "     Kalau rootfs muncul, persistence aktif. Baru install Brave lagi,"
 echo "     reboot sekali lagi, dan Brave harusnya tetap ada."
-echo "  4. Kalau boot gagal / masuk menu aneh: hapus file"
-echo "     $VENTOY_PART/ventoy/ventoy.json lalu reboot — kembali seperti semula."
+echo "  4. Kalau boot gagal / masuk menu aneh: kembalikan ventoy.json"
+echo "     dari cadangannya lalu reboot — kembali seperti semula:"
+echo "     sudo cp $VENTOY_PART/ventoy/ventoy.json.bak $VENTOY_PART/ventoy/ventoy.json"
