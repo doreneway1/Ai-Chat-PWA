@@ -16,10 +16,14 @@ Script ini:
 1. Mencari file ISO antiX di flashdisk Ventoy.
 2. Membuka isi ISO (read-only) dan mencari `isolinux.cfg` (BIOS) / `grub.cfg` (UEFI).
 3. Menyalin config itu ke `/ventoy/` di flashdisk, dengan tambahan
-   `plabel=Ventoy persist_static` di **baris boot pertama saja**.
+   `plabel=Ventoy persist_static` di **semua baris boot** (tiap entri
+   menu punya barisnya sendiri — mis. entri kernel biasa dan kernel
+   modern; hanya baris boot antiX yang diubah, entri lain seperti
+   memtest tidak disentuh).
 4. Menulis `/ventoy/ventoy.json` yang menunjuk ke salinan tersebut
-   (dipakai key `conf_replace_legacy` / `conf_replace_uefi` sesuai
-   dokumentasi Ventoy; JSON divalidasi dulu sebelum dipasang).
+   (dipakai key `conf_replace` biasa sesuai dokumentasi Ventoy —
+   kompatibel dengan semua versi Ventoy; JSON divalidasi dulu sebelum
+   dipasang).
    Kalau `ventoy.json` sudah ada (mis. berisi setting `persistence`),
    script menggabungkan, bukan menimpa — pengaturan lama dipertahankan
    dan dibuat cadangannya (`ventoy.json.bak`).
@@ -43,6 +47,22 @@ valid untuk ketiga kasus (BIOS saja, UEFI saja, keduanya).
 4. Setelah masuk desktop, cek: `mount | grep rootfs`
    Kalau rootfs muncul → persistence aktif. Install Brave, reboot sekali lagi,
    Brave harusnya tetap ada.
+
+## Backup rootfs + homefs
+
+`backup-antix.sh` — cadangan satu perintah untuk dua file persistence.
+Jalankan di terminal antiX setelah menutup Brave dan semua aplikasi:
+
+```
+bash backup-antix.sh                          # simpan di flashdisk yang sama
+bash backup-antix.sh /media/flashdisk-kedua   # simpan di flashdisk kedua (paling aman)
+```
+
+Script mengecek ruang kosong, menyalin kedua file, memverifikasi ukuran
+dan sha256, lalu menyimpan hanya 2 cadangan terbaru. Restore harus dari
+boot lain (bukan dari persistence yang sedang dipakai) — caranya tertulis
+di kepala script. Sudah dites 24 Nov 2026 dengan file palsu: salin,
+verifikasi sha256, dan prune ke 2 terbaru semuanya jalan.
 
 ## Kalau gagal
 
