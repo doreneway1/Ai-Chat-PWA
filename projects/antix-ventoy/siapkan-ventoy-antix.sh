@@ -52,13 +52,40 @@ if [ -z "$ISOLINUX_CFG" ] && [ -z "$GRUB_CFG" ]; then
   exit 1
 fi
 
+# antiX 26 memisah entri boot per kernel: isolinux.cfg hanya berisi menu
+# utama dengan CONFIG ke kernel0.cfg (legacy) / kernel1.cfg (modern) —
+# baris boot yang sebenarnya ada di file kernel itu, bukan di isolinux.cfg.
+# Ventoy hanya boleh mengganti maks. 2 file per ISO, jadi yang dipakai
+# adalah kernel modern (kernel1.cfg). Kalau tidak ada, fallback ke
+# kernel0.cfg, lalu ke isolinux.cfg itu sendiri (ISO lama).
+KERNEL_CFG=""
+if [ -n "$ISOLINUX_CFG" ]; then
+  ISOLINUX_DIR=$(dirname "$ISOLINUX_CFG")
+  for cand in "$ISOLINUX_DIR/kernel1.cfg" "$ISOLINUX_DIR/kernel0.cfg" "$ISOLINUX_CFG"; do
+    if [ -f "$cand" ] && grep -qi "^[[:space:]]*append[[:space:]].*initrd=" "$cand"; then
+      KERNEL_CFG="$cand"
+      break
+    fi
+  done
+fi
+echo "config kernel syslinux: ${KERNEL_CFG:-tidak ketemu (tidak ada baris boot)}"
+
 sudo mkdir -p "$VENTOY_PART/ventoy"
 
 tambah_param() {
   # $1 = file asli, $2 = file hasil, $3 = pola baris boot
   # Tambahkan ke SEMUA baris boot yang cocok — tiap entri menu punya
   # barisnya sendiri (mis. entri kernel biasa dan kernel modern).
+  # Return 1 kalau tidak ada baris boot yang cocok (supaya tidak
+  # "sukses" diam-diam seperti yang pernah terjadi).
   local asal="$1" hasil="$2" pola="$3"
+  local n
+  n=$(grep -ci "$pola" "$asal" 2>/dev/null || true)
+  n=${n:-0}
+  if [ "$n" = "0" ]; then
+    echo "  PERINGATAN: tidak ada baris boot yang cocok di file ini — dilewati."
+    return 1
+  fi
   sudo cp "$asal" "$hasil"
   if grep -q "persist_static" "$hasil"; then
     echo "  (sudah ada persist_static, tidak diubah)"
@@ -68,28 +95,44 @@ tambah_param() {
   #  baris-baris sebelum baris boot — sudah terbukti di tes.)
   # Hasil awk ditulis ke /tmp dulu lalu dipindah pakai sudo,
   # supaya tetap jalan walau partisi Ventoy tidak bisa ditulis user biasa.
-  awk -v pat="$pola" '{ if ($0 ~ pat) { $0=$0" plabel=Ventoy persist_static" } print }' "$asal" > /tmp/antix-cfg.tmp && sudo mv /tmp/antix-cfg.tmp "$hasil"
-  echo "  --- sebelum ---"
-  grep "$pola" "$asal"
+  # Pencocokan case-insensitive (tolower): config antiX memakai APPEND
+  # huruf besar, ISO lain bisa memakai append huruf kecil.
+  awk -v pat="$pola" '{ if (tolower($0) ~ pat) { $0=$0" plabel=Ventoy persist_static" } print }' "$asal" > /tmp/antix-cfg.tmp && sudo mv /tmp/antix-cfg.tmp "$hasil"
+  # Verifikasi: kalau tidak ada baris yang berubah, anggap gagal
+  # (jangan "sukses" diam-diam).
+  if ! grep -q "persist_static" "$hasil"; then
+    echo "  PERINGATAN: penambahan parameter gagal (tidak ada baris yang berubah) — dilewati."
+    return 1
+  fi
+  echo "  --- sebelum ($n baris) ---"
+  grep -i "$pola" "$asal"
   echo "  --- sesudah ---"
-  grep "$pola" "$hasil"
+  grep -i "$pola" "$hasil"
+  return 0
 }
 
 LEGACY_ORG=""
+LEGACY_NEW=""
 UEFI_ORG=""
-if [ -n "$ISOLINUX_CFG" ]; then
+UEFI_NEW=""
+if [ -n "$KERNEL_CFG" ]; then
   echo ""
-  echo "== 4a. Buat salinan isolinux (mode BIOS/Legacy) =="
-  REL_ISOLINUX="${ISOLINUX_CFG#$ISO_MOUNT}"
-  tambah_param "$ISOLINUX_CFG" "$VENTOY_PART/ventoy/antix-isolinux.cfg" "^[[:space:]]*append[[:space:]].*initrd="
-  LEGACY_ORG="$REL_ISOLINUX"
+  echo "== 4a. Buat salinan config kernel syslinux (mode BIOS/Legacy) =="
+  REL_KERNEL="${KERNEL_CFG#$ISO_MOUNT}"
+  KERNEL_BASE=$(basename "$KERNEL_CFG")
+  if tambah_param "$KERNEL_CFG" "$VENTOY_PART/ventoy/antix-$KERNEL_BASE" "^[[:space:]]*append[[:space:]].*initrd="; then
+    LEGACY_ORG="$REL_KERNEL"
+    LEGACY_NEW="/ventoy/antix-$KERNEL_BASE"
+  fi
 fi
 if [ -n "$GRUB_CFG" ]; then
   echo ""
   echo "== 4b. Buat salinan grub (mode UEFI) =="
   REL_GRUB="${GRUB_CFG#$ISO_MOUNT}"
-  tambah_param "$GRUB_CFG" "$VENTOY_PART/ventoy/antix-grub.cfg" "^[[:space:]]*linux[[:space:]].*vmlinuz"
-  UEFI_ORG="$REL_GRUB"
+  if tambah_param "$GRUB_CFG" "$VENTOY_PART/ventoy/antix-grub.cfg" "^[[:space:]]*linux[[:space:]].*/antix/"; then
+    UEFI_ORG="$REL_GRUB"
+    UEFI_NEW="/ventoy/antix-grub.cfg"
+  fi
 fi
 
 echo ""
@@ -106,7 +149,7 @@ CONF_TMP="/tmp/ventoy-conf.json.tmp"
     echo '        {'
     echo "            \"iso\": \"$ISO_REL\","
     echo "            \"org\": \"$LEGACY_ORG\","
-    echo '            "new": "/ventoy/antix-isolinux.cfg"'
+    echo "            \"new\": \"$LEGACY_NEW\""
     echo '        }'
     FIRST=0
   fi
@@ -115,7 +158,7 @@ CONF_TMP="/tmp/ventoy-conf.json.tmp"
     echo '        {'
     echo "            \"iso\": \"$ISO_REL\","
     echo "            \"org\": \"$UEFI_ORG\","
-    echo '            "new": "/ventoy/antix-grub.cfg"'
+    echo "            \"new\": \"$UEFI_NEW\""
     echo '        }'
     FIRST=0
   fi
@@ -166,6 +209,15 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 sudo mv "$JSON_TMP" "$VENTOY_JSON"
 cat "$VENTOY_JSON"
+# Bersihkan salinan config lama yang sudah tidak dipakai lagi
+# (mis. antix-isolinux.cfg dari versi lama script).
+for lama in "$VENTOY_PART"/ventoy/antix-*.cfg; do
+  [ -f "$lama" ] || continue
+  base="/ventoy/$(basename "$lama")"
+  if [ "$base" != "$LEGACY_NEW" ] && [ "$base" != "$UEFI_NEW" ]; then
+    sudo rm -f "$lama" && echo "Hapus salinan lama yang tidak dipakai: $lama"
+  fi
+done
 
 sudo umount "$ISO_MOUNT"
 echo ""
