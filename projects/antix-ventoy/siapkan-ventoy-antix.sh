@@ -18,6 +18,8 @@
 VENTOY_PART="${VENTOY_PART:-/live/persist-dev}"   # partisi data Ventoy (tempat homefs berada)
 ISO_MOUNT="/tmp/antix-iso"
 
+echo "siapkan-ventoy-antix.sh v3 — patch kernel1.cfg (modern) + grub.cfg"
+echo ""
 echo "== 1. Cari file ISO antiX di flashdisk =="
 ISO=$(ls "$VENTOY_PART"/*.iso 2>/dev/null | head -n 1)
 if [ -z "$ISO" ]; then
