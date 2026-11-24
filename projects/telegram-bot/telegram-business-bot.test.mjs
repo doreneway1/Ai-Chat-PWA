@@ -14,12 +14,12 @@ function makeCtx(state, now = T0, aiReply) {
   };
 }
 
-function customerMsg({ chatId = 111, messageId = 1, text = "permisi", connectionId = "conn-1" } = {}) {
+function customerMsg({ chatId = 111, messageId = 1, text = "permisi", connectionId = "conn-1", username } = {}) {
   return {
     business_message: {
       message_id: messageId,
       business_connection_id: connectionId,
-      from: { id: chatId, is_bot: false, first_name: "Andi" },
+      from: { id: chatId, is_bot: false, first_name: "Andi", ...(username ? { username } : {}) },
       chat: { id: chatId, type: "private" },
       text,
     },
@@ -488,13 +488,53 @@ test("pemilik tidak diberi tahu kalau bot tidak membalas", async () => {
 
 test("ownerNotifyText memotong balasan bot yang panjang", () => {
   const text = ownerNotifyText({
-    senderName: "Andi",
+    sender: { id: 111, first_name: "Andi" },
     text: "halo",
     replies: ["x".repeat(1000)],
   });
   assert.ok(text.length <= 4000);
   assert.match(text, /…/);
   assert.match(text, /Andi/);
+});
+
+test("ownerNotifyText menampilkan @username sebagai tautan", () => {
+  const text = ownerNotifyText({
+    sender: { id: 111, first_name: "Andi", username: "andi123" },
+    text: "halo",
+    replies: ["hai"],
+  });
+  assert.match(text, /<a href="https:\/\/t\.me\/andi123">@andi123<\/a>/);
+  assert.doesNotMatch(text, /Andi/);
+});
+
+test("ownerNotifyText tanpa username menautkan nama ke profil", () => {
+  const text = ownerNotifyText({
+    sender: { id: 111, first_name: "Andi" },
+    text: "halo",
+    replies: ["hai"],
+  });
+  assert.match(text, /<a href="tg:\/\/user\?id=111">Andi<\/a>/);
+});
+
+test("ownerNotifyText meng-escape HTML dari pesan dan balasan", () => {
+  const text = ownerNotifyText({
+    sender: { id: 111, first_name: "Andi", username: "andi123" },
+    text: "a < b & c",
+    replies: ["balasan <b>tebal</b>"],
+  });
+  assert.match(text, /a &lt; b &amp; c/);
+  assert.match(text, /balasan &lt;b&gt;tebal&lt;\/b&gt;/);
+  assert.doesNotMatch(text, /<b>tebal<\/b>/);
+});
+
+test("notifikasi menampilkan @username pengirim yang bisa diklik", async () => {
+  const notified = [];
+  const state = createState();
+  const { ctx } = makeCtx(state, T0, async () => "Balasan AI contoh.");
+  ctx.notifyOwner = async (text) => notified.push(text);
+  await handleUpdate(customerMsg({ messageId: 1, text: "permisi", username: "andi123" }), ctx);
+  assert.equal(notified.length, 1);
+  assert.match(notified[0], /<a href="https:\/\/t\.me\/andi123">@andi123<\/a>/);
 });
 
 test("notifikasi gagal tidak menggagalkan balasan", async () => {
