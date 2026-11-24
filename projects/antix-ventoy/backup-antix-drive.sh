@@ -57,9 +57,9 @@ backup_one() {
     echo "== $name (percobaan $attempt): hitung sha256 sumber =="
     h_src=$(sha256sum "$src" | awk '{print $1}')
     echo "== $name: kompres streaming ke $out =="
-    sync
+    # TIDAK ada sync di sini: sync memaksa checkpoint journal ext4, yang
+    # MENGUBAH isi file rootfs saat dibaca dan membuat sha256 tidak cocok.
     cat "$src" | $COMPRESS > "$out"
-    sync
     echo "== $name: verifikasi (buka lagi + sha256) =="
     h_dec=$($DECOMPRESS "$out" | sha256sum | awk '{print $1}')
     if [ "$h_src" = "$h_dec" ]; then
