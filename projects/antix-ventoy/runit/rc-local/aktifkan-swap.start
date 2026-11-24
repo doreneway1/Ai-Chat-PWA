@@ -1,0 +1,19 @@
+#!/bin/sh
+# Aktifkan swap tiap boot (dijalankan service rc-local via runit).
+# Menggantikan /etc/rc.local (TIDAK dieksekusi saat boot runit) dan
+# script sysvinit S02aktifkan-swap (juga TIDAK dieksekusi saat boot runit).
+# Dijalankan sebagai root oleh rc-local; idempotent (yang sudah aktif dilewati).
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+modprobe zram 2>/dev/null || true
+if ! swapon --show 2>/dev/null | grep -q zram; then
+  dev=$(zramctl --find --size 1500M --algorithm lz4 2>/dev/null)
+  if [ -n "$dev" ]; then
+    mkswap "$dev" >/dev/null 2>&1
+    swapon -p 100 "$dev" 2>/dev/null
+  fi
+fi
+if [ -f /live/persist-dev/swapfile ] && ! swapon --show 2>/dev/null | grep -q /live/persist-dev/swapfile; then
+  swapon /live/persist-dev/swapfile 2>/dev/null
+fi
