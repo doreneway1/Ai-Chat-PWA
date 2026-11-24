@@ -1,0 +1,47 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          aktifkan-swap
+# Required-Start:    $local_fs
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Aktifkan zram + swapfile tiap boot
+# Description:       Menggantikan ritual manual tiap boot (klik
+#                    aktifkan-swap.sh di Desktop + klik swapfile):
+#                    membuat zram 1500M (lz4, prioritas 100) dan
+#                    mengaktifkan /live/persist-dev/swapfile (2G).
+#                    Idempotent: yang sudah aktif dilewati.
+### END INIT INFO
+
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+case "$1" in
+  start)
+    echo -n "Mengaktifkan swap: "
+    modprobe zram 2>/dev/null
+    if ! swapon --show 2>/dev/null | grep -q zram; then
+      dev=$(zramctl --find --size 1500M --algorithm lz4 2>/dev/null)
+      if [ -n "$dev" ]; then
+        mkswap "$dev" >/dev/null 2>&1
+        swapon -p 100 "$dev" 2>/dev/null
+        echo -n "zram ($dev) "
+      fi
+    fi
+    if [ -f /live/persist-dev/swapfile ] && ! swapon --show 2>/dev/null | grep -q /live/persist-dev/swapfile; then
+      swapon /live/persist-dev/swapfile 2>/dev/null
+      echo -n "swapfile "
+    fi
+    echo "selesai."
+    ;;
+  stop)
+    swapoff -a 2>/dev/null
+    ;;
+  status)
+    swapon --show
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|status}" >&2
+    exit 3
+    ;;
+esac
+exit 0
