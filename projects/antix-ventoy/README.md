@@ -22,10 +22,12 @@ Script ini:
    per ISO, jadi entri legacy kernel tidak di-patch (kalau boot legacy,
    ketik manual). Sisi UEFI memakai `grub.cfg`.
 3. Menyalin config itu ke `/ventoy/` di flashdisk, dengan tambahan
-   `plabel=Ventoy persist_static` di **semua baris boot** (hanya baris
-   boot antiX yang diubah, entri lain seperti memtest tidak disentuh).
-   Kalau tidak ada baris boot yang cocok, script memberi peringatan
-   dan melewati file itu (tidak "sukses" diam-diam).
+   `plabel=Ventoy persist_static` di **semua baris boot**. antiX memakai
+   direktif `INITRD` terpisah (bukan `initrd=` di dalam `APPEND`), jadi
+   entri boot dikenali dari strukturnya: label yang punya baris `KERNEL`.
+   Entri non-boot seperti "Back_to_Top" (COM32 + `APPEND file=...`) dan
+   memtest tidak disentuh. Kalau tidak ada baris boot yang cocok, script
+   memberi peringatan dan melewati file itu (tidak "sukses" diam-diam).
 4. Menulis `/ventoy/ventoy.json` yang menunjuk ke salinan tersebut
    (dipakai key `conf_replace` biasa sesuai dokumentasi Ventoy —
    kompatibel dengan semua versi Ventoy; JSON divalidasi dulu sebelum
@@ -38,11 +40,11 @@ Script ini:
 Script memakai `sudo` untuk mount ISO dan menulis ke flashdisk
 (kalau diminta password, isi password user live, biasanya `demo`).
 
-Logika editnya sudah dites di sini (24 Nov 2026): semua baris boot
-antiX ter-patch (kernel biasa + modern), entri lain tidak tersentuh,
-dan `ventoy.json` valid untuk semua kasus (BIOS saja, UEFI saja,
-keduanya, merge dengan ventoy.json lama, dan struktur CONFIG
-kernel0/kernel1.cfg).
+Logika editnya sudah dites di sini (24 Nov 2026) dengan isi config
+asli dari ISO user: ke-8 entri boot di `kernel1.cfg` ter-patch,
+entri "Back_to_Top" dan memtest tidak tersentuh, dan `ventoy.json`
+valid untuk semua kasus (BIOS saja, UEFI saja, keduanya, merge
+dengan ventoy.json lama, dan struktur CONFIG kernel0/kernel1.cfg).
 
 ## Cara pakai
 
