@@ -20,6 +20,9 @@ Script ini:
 4. Menulis `/ventoy/ventoy.json` yang menunjuk ke salinan tersebut
    (dipakai key `conf_replace_legacy` / `conf_replace_uefi` sesuai
    dokumentasi Ventoy; JSON divalidasi dulu sebelum dipasang).
+   Kalau `ventoy.json` sudah ada (mis. berisi setting `persistence`),
+   script menggabungkan, bukan menimpa — pengaturan lama dipertahankan
+   dan dibuat cadangannya (`ventoy.json.bak`).
 5. Menampilkan sebelum/sesudah supaya bisa dicek sebelum reboot.
 
 Script memakai `sudo` untuk mount ISO dan menulis ke flashdisk
@@ -43,7 +46,15 @@ valid untuk ketiga kasus (BIOS saja, UEFI saja, keduanya).
 
 ## Kalau gagal
 
-Hapus `/ventoy/ventoy.json` di flashdisk, reboot — boot kembali seperti semula.
+Kembalikan `ventoy.json` dari cadangannya, reboot — boot kembali seperti
+semula:
+
+```
+sudo cp /live/persist-dev/ventoy/ventoy.json.bak /live/persist-dev/ventoy/ventoy.json
+```
+
+(Kalau tidak ada file `.bak`, berarti `ventoy.json` belum pernah ada
+sebelumnya — hapus saja file `ventoy.json` itu.)
 Plugin ini hanya jalan di mode boot normal Ventoy, bukan memdisk/grub2 mode
 (dokumen Ventoy, plugin_bootconf_replace).
 
