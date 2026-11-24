@@ -173,7 +173,7 @@ export function parseIncoming(envelope) {
     return { skip: "own_message" };
   }
 
-  const chatId = data.chat_id ?? data.chatId ?? "";
+  const chatId = data.chat_id ?? data.chatId ?? data.chat_jid ?? "";
   const fromRaw =
     extractSender(data.from) ||
     extractSender(data.sender) ||
@@ -195,7 +195,13 @@ export function parseIncoming(envelope) {
     extractText(data.message) ||
     extractText(data.content) ||
     "";
-  const messageId = data.message_id ?? data.id ?? envelope.id ?? null;
+  const messageId =
+    data.message_id ??
+    data.provider_message_id ??
+    data.incoming_id ??
+    data.id ??
+    envelope.id ??
+    null;
   const sentAtMs = parseTime(data.sent_at ?? data.timestamp ?? envelope.created_at);
 
   return { messageId, from: String(fromRaw), text, sentAtMs };
@@ -531,11 +537,15 @@ export async function broGatewaySend(env, { to, text }, fetchFn = fetch) {
 }
 
 // --- Verifikasi tanda tangan webhook ----------------------------------------
-// Format persis yang dipakai Bro Gateway tidak terdokumentasi publik.
-// Awalnya Worker hanya menerima "sha256=" + hex(HMAC(secret,
-// timestamp + "." + rawBody)), tapi semua kiriman nyata ditolak 401
-// (24 Nov 2026), jadi verifikasi kini mencoba beberapa varian umum —
-// semuanya tetap membutuhkan secret yang benar:
+// Format ASLI Bro Gateway (terverifikasi dari kiriman nyata 24 Nov 2026
+// lewat Worker debug): header `x-wag-signature` berisi
+// "sha256=" + hex(HMAC-SHA256(secret, timestamp + "." + rawBody)),
+// dengan timestamp dari header `x-wag-timestamp` (detik, waktu pengiriman).
+// Awalnya Worker membaca header `x-signature`/`x-timestamp` (tanpa prefix
+// x-wag-) sehingga semua kiriman nyata ditolak 401 — itu satu-satunya
+// penyebab bot diam; format HMAC-nya sendiri sudah benar sejak awal.
+// Verifikasi tetap mencoba beberapa varian umum sebagai pertahanan —
+// semuanya membutuhkan secret yang benar:
 //  - hex(HMAC(timestamp + "." + rawBody)), dengan/tanpa prefix "sha256="
 //  - hex(HMAC(rawBody)), dengan/tanpa prefix "sha256="
 //  - base64(HMAC(...)) untuk kedua bentuk pesan di atas
@@ -645,11 +655,20 @@ export default {
     const rawBody = await request.text();
 
     if (env.WEBHOOK_SECRET) {
+      // Header asli Bro Gateway memakai prefix x-wag-* (terverifikasi dari
+      // kiriman nyata 24 Nov 2026); x-signature/x-timestamp dipertahankan
+      // sebagai cadangan.
+      const timestamp =
+        request.headers.get("x-wag-timestamp") ??
+        request.headers.get("x-timestamp");
+      const signature =
+        request.headers.get("x-wag-signature") ??
+        request.headers.get("x-signature");
       const valid = await verifySignature(
         env.WEBHOOK_SECRET,
-        request.headers.get("x-timestamp"),
+        timestamp,
         rawBody,
-        request.headers.get("x-signature"),
+        signature,
       );
       if (!valid) {
         return Response.json({ ok: false, error: "signature tidak valid" }, { status: 401 });
