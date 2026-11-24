@@ -130,6 +130,30 @@ test("parseIncoming: pengirim berupa objek dan envelope.type/payload", () => {
   assert.equal(p.messageId, "m-3");
 });
 
+test("parseIncoming: bentuk payload asli Bro Gateway (chat_jid, provider_message_id)", () => {
+  const p = parseIncoming({
+    id: "evt_01",
+    event: "message.received",
+    created_at: "2026-11-24T03:43:55.333Z",
+    data: {
+      incoming_id: "inb_01",
+      from: "628123456789",
+      sender_name: "Budi",
+      is_group: false,
+      chat_jid: "628123456789@s.whatsapp.net",
+      type: "text",
+      text: "permisi, stok ready?",
+      media_mime: null,
+      provider_message_id: "3EB07237491695400E400D",
+      timestamp: 1795491834,
+    },
+  });
+  assert.equal(p.from, "628123456789");
+  assert.equal(p.text, "permisi, stok ready?");
+  assert.equal(p.messageId, "3EB07237491695400E400D");
+  assert.equal(p.sentAtMs, 1795491834 * 1000);
+});
+
 test("parseIncoming: pesan dari nomor sendiri diabaikan", () => {
   assert.equal(parseIncoming(incoming({ extra: { from_me: true } })).skip, "own_message");
 });
@@ -458,6 +482,23 @@ test("fetch: signature salah dijawab 401", async () => {
     env,
   );
   assert.equal(res.status, 401);
+});
+
+test("fetch: header x-wag-* asli Bro Gateway diterima (bukan 401)", async () => {
+  const env = { BRO_API_KEY: "k", WEBHOOK_SECRET: "whsec_test" };
+  // Pesan grup: lolos verifikasi signature tapi tidak memicu kiriman balasan.
+  const body = JSON.stringify(incoming({ extra: { is_group: true } }));
+  const ts = "1700000000";
+  const res = await bot.fetch(
+    makeRequest("/webhook", body, {
+      "x-wag-timestamp": ts,
+      "x-wag-signature": sign("whsec_test", ts, body),
+    }),
+    env,
+  );
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.action, "group");
 });
 
 test("fetch: request valid tanpa secret diproses sampai balas (tanpa ctx)", async () => {
