@@ -89,6 +89,10 @@ isi pesannya, dan balasan yang dikirim bot. Kalau bot tidak membalas
 (misalnya saat jeda karena kamu baru saja membalas sendiri), tidak ada
 notifikasi karena pesan itu tetap belum dibaca dan akan kamu lihat sendiri.
 
+Pengirim ditampilkan sebagai `@username` yang bisa diketuk untuk langsung
+membuka percakapan. Kalau pengirim tidak punya username, namanya ditampilkan
+sebagai tautan ke profilnya.
+
 Kirim `/start` ke bot untuk memastikan notifikasi aktif — bot akan membalas
 dengan konfirmasi.
 
