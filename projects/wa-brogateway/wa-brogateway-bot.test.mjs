@@ -87,6 +87,49 @@ test("parseIncoming: grup diabaikan (is_group dan @g.us)", () => {
   );
 });
 
+test("parseIncoming: grup via chat_type diabaikan", () => {
+  assert.equal(
+    parseIncoming(incoming({ extra: { chat_type: "group" } })).skip,
+    "group",
+  );
+});
+
+test("parseIncoming: teks bersarang gaya WA Web (conversation/extendedTextMessage)", () => {
+  const p1 = parseIncoming({
+    event: "message.received",
+    data: {
+      message_id: "m-1",
+      from: "628123456789",
+      message: { conversation: "halo kak" },
+    },
+  });
+  assert.equal(p1.text, "halo kak");
+
+  const p2 = parseIncoming({
+    event: "message.received",
+    data: {
+      message_id: "m-2",
+      from: "628123456789",
+      message: { extendedTextMessage: { text: "berapa harganya?" } },
+    },
+  });
+  assert.equal(p2.text, "berapa harganya?");
+});
+
+test("parseIncoming: pengirim berupa objek dan envelope.type/payload", () => {
+  const p = parseIncoming({
+    type: "message.received",
+    payload: {
+      id: "m-3",
+      from: { id: "62899@s.whatsapp.net" },
+      body: "tes",
+    },
+  });
+  assert.equal(p.from, "62899@s.whatsapp.net");
+  assert.equal(p.text, "tes");
+  assert.equal(p.messageId, "m-3");
+});
+
 test("parseIncoming: pesan dari nomor sendiri diabaikan", () => {
   assert.equal(parseIncoming(incoming({ extra: { from_me: true } })).skip, "own_message");
 });
@@ -283,6 +326,40 @@ test("verifySignature menolak secret yang salah", async () => {
   const body = '{"event":"message.received"}';
   const sig = sign("whsec_benar", ts, body);
   assert.equal(await verifySignature("whsec_salah", ts, body, sig), false);
+});
+
+test("verifySignature menerima varian format tanda tangan", async () => {
+  const secret = "whsec_test";
+  const ts = "1700000000";
+  const body = '{"event":"message.received"}';
+  const hmac = (msg) => createHmac("sha256", secret).update(msg).digest("hex");
+  const hmacB64 = (msg) => createHmac("sha256", secret).update(msg).digest("base64");
+
+  // Hex tanpa prefix "sha256=".
+  assert.equal(await verifySignature(secret, ts, body, hmac(`${ts}.${body}`)), true);
+  // HMAC atas rawBody saja, dengan dan tanpa prefix.
+  assert.equal(await verifySignature(secret, ts, body, hmac(body)), true);
+  assert.equal(await verifySignature(secret, ts, body, "sha256=" + hmac(body)), true);
+  // Base64.
+  assert.equal(await verifySignature(secret, ts, body, hmacB64(`${ts}.${body}`)), true);
+  assert.equal(await verifySignature(secret, ts, body, hmacB64(body)), true);
+  // Gaya Stripe "t=<ts>,v1=<hex>".
+  assert.equal(
+    await verifySignature(secret, ts, body, `t=${ts},v1=${hmac(`${ts}.${body}`)}`),
+    true,
+  );
+  // Header detik tapi yang ditandatangani milidetik (dan sebaliknya).
+  assert.equal(await verifySignature(secret, ts, body, hmac(`${ts}000.${body}`)), true);
+  assert.equal(await verifySignature(secret, `${ts}000`, body, hmac(`${ts}.${body}`)), true);
+  // Hex huruf besar tetap diterima.
+  assert.equal(
+    await verifySignature(secret, ts, body, hmac(`${ts}.${body}`).toUpperCase()),
+    true,
+  );
+  // Tanpa timestamp, HMAC rawBody saja tetap diterima.
+  assert.equal(await verifySignature(secret, undefined, body, hmac(body)), true);
+  // Tanda tangan ngawur tetap ditolak.
+  assert.equal(await verifySignature(secret, ts, body, "sha256=" + "ab".repeat(32)), false);
 });
 
 // --- broGatewaySend ---------------------------------------------------------
