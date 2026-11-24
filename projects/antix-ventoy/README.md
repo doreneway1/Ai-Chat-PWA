@@ -14,12 +14,18 @@ virtual tiap boot, ISO aslinya tidak diubah. Jadi parameter boot nempel terus.
 
 Script ini:
 1. Mencari file ISO antiX di flashdisk Ventoy.
-2. Membuka isi ISO (read-only) dan mencari `isolinux.cfg` (BIOS) / `grub.cfg` (UEFI).
+2. Membuka isi ISO (read-only) dan mencari file boot config. antiX 26
+   memisah entri boot per kernel: `isolinux.cfg` hanya berisi menu utama
+   dengan `CONFIG` ke `kernel0.cfg` (legacy) / `kernel1.cfg` (modern) —
+   baris boot yang sebenarnya ada di file kernel itu. Script memakai
+   `kernel1.cfg` (modern); Ventoy hanya boleh mengganti maks. 2 file
+   per ISO, jadi entri legacy kernel tidak di-patch (kalau boot legacy,
+   ketik manual). Sisi UEFI memakai `grub.cfg`.
 3. Menyalin config itu ke `/ventoy/` di flashdisk, dengan tambahan
-   `plabel=Ventoy persist_static` di **semua baris boot** (tiap entri
-   menu punya barisnya sendiri — mis. entri kernel biasa dan kernel
-   modern; hanya baris boot antiX yang diubah, entri lain seperti
-   memtest tidak disentuh).
+   `plabel=Ventoy persist_static` di **semua baris boot** (hanya baris
+   boot antiX yang diubah, entri lain seperti memtest tidak disentuh).
+   Kalau tidak ada baris boot yang cocok, script memberi peringatan
+   dan melewati file itu (tidak "sukses" diam-diam).
 4. Menulis `/ventoy/ventoy.json` yang menunjuk ke salinan tersebut
    (dipakai key `conf_replace` biasa sesuai dokumentasi Ventoy —
    kompatibel dengan semua versi Ventoy; JSON divalidasi dulu sebelum
@@ -32,9 +38,11 @@ Script ini:
 Script memakai `sudo` untuk mount ISO dan menulis ke flashdisk
 (kalau diminta password, isi password user live, biasanya `demo`).
 
-Logika editnya sudah dites di sini (24 Nov 2026): tepat 1 baris yang
-berubah per file, entri boot lain tidak tersentuh, dan `ventoy.json`
-valid untuk ketiga kasus (BIOS saja, UEFI saja, keduanya).
+Logika editnya sudah dites di sini (24 Nov 2026): semua baris boot
+antiX ter-patch (kernel biasa + modern), entri lain tidak tersentuh,
+dan `ventoy.json` valid untuk semua kasus (BIOS saja, UEFI saja,
+keduanya, merge dengan ventoy.json lama, dan struktur CONFIG
+kernel0/kernel1.cfg).
 
 ## Cara pakai
 
