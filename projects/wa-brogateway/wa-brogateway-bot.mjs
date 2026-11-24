@@ -136,11 +136,37 @@ function parseTime(value) {
   return Number.isNaN(ms) ? null : ms;
 }
 
+// Ambil teks dari nilai yang bisa berupa string atau objek bersarang
+// (bentuk Baileys/WA Web: message.conversation,
+// message.extendedTextMessage.text).
+function extractText(value, depth = 0) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || depth > 2) return "";
+  return (
+    extractText(value.conversation, depth + 1) ||
+    extractText(value.text, depth + 1) ||
+    extractText(value.body, depth + 1) ||
+    extractText(value.message, depth + 1) ||
+    extractText(value.caption, depth + 1) ||
+    extractText(value.extendedTextMessage?.text, depth + 1)
+  );
+}
+
+// Ambil nomor pengirim; bisa string atau objek { id | number | phone | jid }.
+function extractSender(value) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const id = value.id ?? value.number ?? value.phone ?? value.jid ?? "";
+  return typeof id === "string" ? id : "";
+}
+
 // Mengembalikan null kalau bukan event message.received, { skip } kalau
 // event harus diabaikan, atau { messageId, from, text, sentAtMs }.
 export function parseIncoming(envelope) {
-  if (!envelope || envelope.event !== "message.received") return null;
-  const data = envelope.data ?? {};
+  if (!envelope) return null;
+  const eventName = envelope.event ?? envelope.type;
+  if (eventName !== "message.received") return null;
+  const data = envelope.data ?? envelope.payload ?? {};
 
   // Pesan yang dikirim dari nomor sendiri (kalau gateway mengirim echo).
   if (data.from_me === true || data.direction === "outbound") {
@@ -148,17 +174,27 @@ export function parseIncoming(envelope) {
   }
 
   const chatId = data.chat_id ?? data.chatId ?? "";
-  const fromRaw = data.from ?? data.sender ?? data.from_number ?? chatId ?? "";
+  const fromRaw =
+    extractSender(data.from) ||
+    extractSender(data.sender) ||
+    extractSender(data.from_number) ||
+    extractSender(chatId);
 
-  // Grup: ditandai is_group, atau chat/nomor berakhiran @g.us.
+  // Grup: ditandai is_group/chat_type, atau chat/nomor berakhiran @g.us.
   const isGroup =
     data.is_group === true ||
+    data.chat_type === "group" ||
+    data.type === "group" ||
     String(chatId).endsWith("@g.us") ||
     String(fromRaw).endsWith("@g.us");
   if (isGroup) return { skip: "group" };
 
-  const rawText = data.text ?? data.body ?? data.message ?? data.content;
-  const text = typeof rawText === "string" ? rawText : "";
+  const text =
+    extractText(data.text) ||
+    extractText(data.body) ||
+    extractText(data.message) ||
+    extractText(data.content) ||
+    "";
   const messageId = data.message_id ?? data.id ?? envelope.id ?? null;
   const sentAtMs = parseTime(data.sent_at ?? data.timestamp ?? envelope.created_at);
 
@@ -495,12 +531,28 @@ export async function broGatewaySend(env, { to, text }, fetchFn = fetch) {
 }
 
 // --- Verifikasi tanda tangan webhook ----------------------------------------
-// Sesuai dokumentasi Bro Gateway: header x-signature berisi
-// "sha256=" + hex(HMAC-SHA256(secret, timestamp + "." + rawBody)),
-// dengan timestamp dari header x-timestamp.
+// Format persis yang dipakai Bro Gateway tidak terdokumentasi publik.
+// Awalnya Worker hanya menerima "sha256=" + hex(HMAC(secret,
+// timestamp + "." + rawBody)), tapi semua kiriman nyata ditolak 401
+// (24 Nov 2026), jadi verifikasi kini mencoba beberapa varian umum —
+// semuanya tetap membutuhkan secret yang benar:
+//  - hex(HMAC(timestamp + "." + rawBody)), dengan/tanpa prefix "sha256="
+//  - hex(HMAC(rawBody)), dengan/tanpa prefix "sha256="
+//  - base64(HMAC(...)) untuk kedua bentuk pesan di atas
+//  - gaya Stripe "t=<ts>,v1=<hex>" (nilai v1 dibandingkan dengan hex)
+// Timestamp juga dicoba dalam bentuk detik dan milidetik, karena header
+// dan payload yang ditandatangani kadang memakai satuan berbeda.
 
-export async function verifySignature(secret, timestamp, rawBody, signature) {
-  if (!secret || !timestamp || !rawBody || !signature) return false;
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function hmacHex(secret, message) {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -511,18 +563,59 @@ export async function verifySignature(secret, timestamp, rawBody, signature) {
   const sig = await crypto.subtle.sign(
     "HMAC",
     key,
-    new TextEncoder().encode(`${timestamp}.${rawBody}`),
+    new TextEncoder().encode(message),
   );
-  const hex = [...new Uint8Array(sig)]
+  return [...new Uint8Array(sig)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  const expected = `sha256=${hex}`;
-  if (expected.length !== signature.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) {
-    diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+}
+
+function hexToBase64(hex) {
+  const bytes = new Uint8Array(hex.match(/../g).map((h) => parseInt(h, 16)));
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+export async function verifySignature(secret, timestamp, rawBody, signature) {
+  if (!secret || !rawBody || !signature) return false;
+  const received = String(signature).trim();
+
+  const messages = [rawBody];
+  if (timestamp) {
+    const t = String(timestamp).trim();
+    const variants = new Set([t]);
+    if (/^\d+$/.test(t)) {
+      if (t.length >= 13) variants.add(t.slice(0, 10)); // ms -> detik
+      else if (t.length === 10) variants.add(`${t}000`); // detik -> ms
+    }
+    for (const v of variants) messages.push(`${v}.${rawBody}`);
   }
-  return diff === 0;
+
+  const candidates = [];
+  for (const msg of messages) {
+    const hex = await hmacHex(secret, msg);
+    candidates.push(hex, `sha256=${hex}`, hexToBase64(hex));
+  }
+
+  // Gaya "t=<ts>,v1=<hex>": bandingkan tiap nilai v1 dengan kandidat hex.
+  const v1s = [...received.matchAll(/(?:^|,)v1=([0-9a-fA-F]{64})(?=,|$)/g)]
+    .map((m) => m[1].toLowerCase());
+  const hexCandidates = candidates.filter((c) => /^[0-9a-f]{64}$/.test(c));
+  for (const v of v1s) {
+    for (const h of hexCandidates) {
+      if (timingSafeEqual(v, h)) return true;
+    }
+  }
+
+  for (const c of candidates) {
+    if (timingSafeEqual(received, c)) return true;
+    // Hex tidak peka huruf besar/kecil; base64 sudah dicocokkan persis.
+    if (/^[0-9a-f]{64}$/.test(c) || c.startsWith("sha256=")) {
+      if (timingSafeEqual(received.toLowerCase(), c)) return true;
+    }
+  }
+  return false;
 }
 
 export default {
