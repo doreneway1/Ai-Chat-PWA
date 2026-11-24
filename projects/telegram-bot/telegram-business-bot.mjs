@@ -284,7 +284,7 @@ export async function handleUpdate(update, ctx) {
   if (replies.length && ctx.notifyOwner) {
     try {
       await ctx.notifyOwner(ownerNotifyText({
-        senderName: msg.from?.first_name ?? "Seseorang",
+        sender: msg.from,
         text,
         replies,
       }));
@@ -295,14 +295,37 @@ export async function handleUpdate(update, ctx) {
   return { ok: true, action: replies.length ? "replied" : "no_reply", count: replies.length };
 }
 
-// Susun teks notifikasi untuk pemilik: siapa yang chat, apa pesannya, dan apa
-// yang dibalas bot. Balasan bot dipotong supaya notifikasi tetap ringkas.
-export function ownerNotifyText({ senderName, text, replies }) {
-  const lines = [`💬 Chat baru dari ${senderName}:`, text];
+// Escape karakter khusus HTML supaya teks kiriman pengguna tidak merusak
+// parse_mode HTML pada notifikasi pemilik.
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Tautan ke pengirim untuk notifikasi pemilik: kalau punya username, tampilkan
+// @username yang tertaut ke t.me; kalau tidak, tampilkan nama yang tertaut ke
+// profil lewat tg://user?id=. Diketuk langsung membuka percakapan.
+function senderLink(sender) {
+  const username = sender?.username;
+  if (username) {
+    return `<a href="https://t.me/${username}">@${escapeHtml(username)}</a>`;
+  }
+  const name = escapeHtml(sender?.first_name ?? "Seseorang");
+  if (sender?.id == null) return name;
+  return `<a href="tg://user?id=${sender.id}">${name}</a>`;
+}
+
+// Susun teks notifikasi untuk pemilik: siapa yang chat (tautan yang bisa
+// diketuk), apa pesannya, dan apa yang dibalas bot. Balasan bot dipotong
+// supaya notifikasi tetap ringkas. Dikirim dengan parse_mode HTML.
+export function ownerNotifyText({ sender, text, replies }) {
+  const lines = [`💬 Chat baru dari ${senderLink(sender)}:`, escapeHtml(text)];
   const lastReply = replies[replies.length - 1];
   if (lastReply) {
     const short = lastReply.length > 300 ? lastReply.slice(0, 299) + "…" : lastReply;
-    lines.push("", `🤖 Bot membalas: ${short}`);
+    lines.push("", `🤖 Bot membalas: ${escapeHtml(short)}`);
   }
   const full = lines.join("\n");
   return full.length > 4000 ? full.slice(0, 3999) + "…" : full;
@@ -421,13 +444,14 @@ export async function geminiReply(env, { history, text }, fetchFn = fetch) {
 }
 
 // Kirim pesan biasa dari bot ke pemilik (bukan sebagai akun bisnis).
-// Tanpa OWNER_CHAT_ID, fungsi ini tidak melakukan apa-apa.
+// Tanpa OWNER_CHAT_ID, fungsi ini tidak melakukan apa-apa. Notifikasi memakai
+// parse_mode HTML supaya tautan pengirim bisa diketuk.
 async function telegramSendToOwner(env, text) {
   if (!env.OWNER_CHAT_ID) return;
   const res = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: env.OWNER_CHAT_ID, text }),
+    body: JSON.stringify({ chat_id: env.OWNER_CHAT_ID, text, parse_mode: "HTML" }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.ok === false) {
