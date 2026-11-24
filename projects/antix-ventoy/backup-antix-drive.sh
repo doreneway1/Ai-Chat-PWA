@@ -47,7 +47,10 @@ DEST="$DEST_BASE/backup-$STAMP"
 mkdir -p "$DEST"
 
 backup_one() {
-  local src="$1" name="$2" out="$DEST/$name.$EXT"
+  local src="$1" name="$2"
+  # JANGAN gabung ke baris local di atas: bash mengembangkan semua kata
+  # SEBELUM local berjalan, jadi $name di out= masih kosong (hasilnya .zst).
+  local out="$DEST/$name.$EXT"
   local attempt h_src h_dec
   for attempt in 1 2; do
     echo ""
