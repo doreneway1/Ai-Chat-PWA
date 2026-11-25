@@ -74,7 +74,7 @@ const VAULT_NUDGE_KEY = 'orbit.vaultNudge.v1';
 const FETCH_TIMEOUT_MS = 30_000;
 const IMAGE_FETCH_TIMEOUT_MS = 120_000;
 const SYSTEM_PROMPT =
-  'Kamu adalah asisten dorenewAI. Jawab secara lugas, relevan, dan sesuai bahasa serta format yang diminta pengguna. ' +
+  'Kamu adalah asisten doreneAI. Jawab secara lugas, relevan, dan sesuai bahasa serta format yang diminta pengguna. ' +
   'Jawab permintaan yang dapat dijawab secara langsung dan faktual. Jika sebuah permintaan tidak dapat dipenuhi karena keterbatasan kemampuan atau alasan keamanan, jelaskan alasannya secara singkat dan tawarkan alternatif yang aman bila ada. ' +
   'Tautan Telegram publik tidak otomatis berarti grup privat; jangan mengasumsikan butuh login sebelum mencoba kemampuan web yang memang tersedia. ' +
   'Jangan mengaku telah membuka tautan, membaca grup, atau memakai alat yang tidak tersedia. Jika percakapan ini tidak memiliki browser/web retrieval atau sumbernya memang tidak dapat diakses, jelaskan batasan spesifik itu dengan singkat dan minta pengguna menempelkan atau mengunggah isi yang ingin dianalisis. ' +
@@ -82,7 +82,7 @@ const SYSTEM_PROMPT =
   'Jika pesan disertai blok HASIL PENCARIAN WEB, itu cuplikan hasil pencarian yang benar-benar dilakukan aplikasi: gunakan seperlunya, sebut URL sumbernya, dan jangan mengarang detail di luar cuplikan. ' +
   'Untuk konfigurasi atau keluaran yang dimaksudkan sebagai file/perintah, gunakan fenced code block Markdown dengan label bahasa yang sesuai (mis. json, yaml, bash, powershell, python). Letakkan isi yang siap disalin di dalam blok kode dan pisahkan penjelasan di luar blok.';
 const DEFAULT_ASSISTANT_PROFILE = {
-  name: 'dorenewAI',
+  name: 'doreneAI',
   icon: '✳',
   avatarDataUrl: '',
   instructions: ''
@@ -2626,7 +2626,7 @@ async function exportBackup() {
   const link = document.createElement('a');
   const stamp = new Date().toISOString().slice(0, 10);
   link.href = url;
-  link.download = `dorenewai-backup-${stamp}.json`;
+  link.download = `doreneai-backup-${stamp}.json`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
   showToast('Backup diunduh. Simpan di tempat aman.');
@@ -3060,7 +3060,7 @@ async function initialize() {
   updateContextMeter();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').then(registration => {
-      const notifyUpdate = () => showToast('Versi baru dorenewAI tersedia. Muat ulang halaman untuk memakai versi terbaru.');
+      const notifyUpdate = () => showToast('Versi baru doreneAI tersedia. Muat ulang halaman untuk memakai versi terbaru.');
       if (registration.waiting) notifyUpdate();
       registration.addEventListener('updatefound', () => {
         const worker = registration.installing;
