@@ -56,6 +56,7 @@ const GLOBAL_MEMORY_KEY = 'orbit.globalMemory.v1';
 const GLOBAL_MEMORY_DEFAULT_KEY = 'orbit.useGlobalMemoryByDefault.v1';
 const CUSTOM_TEMPLATES_KEY = 'orbit.customTemplates.v1';
 const GENERATION_DEFAULTS_KEY = 'orbit.generationDefaults.v1';
+const BG_SHARINGAN_KEY = 'orbit.bgSharingan.v1';
 const BACKUP_STORAGE_KEYS = [
   SETTINGS_KEY,
   MODEL_SELECTION_KEY,
@@ -142,6 +143,7 @@ const elements = {
   voiceButton: document.querySelector('#voiceButton'),
   templateButton: document.querySelector('#templateButton'),
   compareButton: document.querySelector('#compareButton'),
+  bgSharinganToggle: document.querySelector('#bgSharinganToggle'),
   templateDialog: document.querySelector('#templateDialog'),
   templateList: document.querySelector('#templateList'),
   compareDialog: document.querySelector('#compareDialog'),
@@ -2881,6 +2883,21 @@ elements.templateButton.addEventListener('click', () => {
 document.querySelector('#closeTemplates').addEventListener('click', () => elements.templateDialog.close());
 document.querySelector('#addTemplate').addEventListener('click', addCustomTemplate);
 elements.compareButton.addEventListener('click', () => void openCompare());
+function bgSharinganEnabled() {
+  try { return localStorage.getItem(BG_SHARINGAN_KEY) !== 'off'; } catch { return true; }
+}
+function applyBgSharingan() {
+  const on = bgSharinganEnabled();
+  document.body.classList.toggle('bg-sharingan-off', !on);
+  elements.bgSharinganToggle?.setAttribute('aria-checked', String(on));
+}
+elements.bgSharinganToggle.addEventListener('click', () => {
+  const next = !bgSharinganEnabled();
+  try { localStorage.setItem(BG_SHARINGAN_KEY, next ? 'on' : 'off'); } catch { /* abaikan */ }
+  applyBgSharingan();
+  showToast(next ? 'Background Sharingan aktif.' : 'Background Sharingan dimatikan.');
+});
+applyBgSharingan();
 document.querySelector('#closeCompare').addEventListener('click', () => elements.compareDialog.close());
 elements.vaultButton.addEventListener('click', () => void handleVaultButton());
 
